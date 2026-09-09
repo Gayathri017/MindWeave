@@ -1,5 +1,7 @@
 """Orchestrates turning a saved URL or note into searchable, embedded chunks."""
 
+import logging
+
 import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import func, select
@@ -8,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.orm import Chunk, Item
 from app.models.schemas import SaveItemRequest
 from app.services.chunking import chunk_text
+from app.services.extraction import extract_concepts, store_concepts_for_item
 from app.services.gemini_client import embed_texts
+
+logger = logging.getLogger(__name__)
 
 
 class DailyLimitExceeded(Exception):
@@ -72,5 +77,14 @@ async def save_item(
         vectors = embed_texts(pieces)
         for content, vector in zip(pieces, vectors):
             session.add(Chunk(item_id=item.id, user_id=user_id, content=content, embedding=vector))
+
+    try:
+        concept_names = extract_concepts(text)
+        await store_concepts_for_item(session, user_id, item.id, concept_names)
+    except Exception:
+        # Concept extraction is an enhancement on top of the core save --
+        # if Gemini hiccups here, the user's note and its searchability
+        # (chunks/embeddings above) must still be saved successfully.
+        logger.exception("Concept extraction failed for item %s; item was still saved.", item.id)
 
     return item

@@ -27,3 +27,19 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: list[str] = Field(default_factory=list, description="Item ids the answer drew from.")
+
+
+class GraphNode(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+class GraphEdge(BaseModel):
+    source: uuid.UUID
+    target: uuid.UUID
+    weight: int
+
+
+class GraphResponse(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]

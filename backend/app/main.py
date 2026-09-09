@@ -6,6 +6,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
+from app.routers.graph import router as graph_router
 from app.routers.items import limiter
 from app.routers.items import router as items_router
 
@@ -25,6 +26,7 @@ app.add_middleware(
 )
 
 app.include_router(items_router, prefix="/api")
+app.include_router(graph_router, prefix="/api")
 
 
 @app.get("/health")

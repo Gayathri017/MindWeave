@@ -1,12 +1,13 @@
-# Mindweave -- backend (Phase 3: ingestion + RAG core)
+# Mindweave -- backend (Phase 3 + 4: ingestion, RAG, and the concept graph)
 
-This is the backend service for Mindweave. This phase implements: saving an
-item (a pasted URL or note), chunking + embedding it, and answering
-questions over a user's own saved knowledge with retrieval-augmented
-generation (RAG).
+This is the backend service for Mindweave. So far it implements: saving an
+item (a pasted URL or note), chunking + embedding it, answering questions
+over a user's own saved knowledge with retrieval-augmented generation
+(RAG), and automatically extracting concepts from each item to build a
+graph of how your ideas connect -- no manual linking required.
 
-**Not yet implemented** (later phases): concept/knowledge-graph extraction,
-the frontend, and production deployment config.
+**Not yet implemented** (later phases): the frontend, and production
+deployment config.
 
 ## Stack
 
@@ -88,11 +89,13 @@ data -- the database itself refuses.
   `{"source_type": "url" | "text", "content": "..."}`
 - `POST /api/chat` -- ask a question over your saved items
   `{"question": "..."}`
+- `GET /api/graph` -- your full concept graph so far: `{"nodes": [...], "edges": [...]}`,
+  where each node is a concept and each edge's `weight` grows every time
+  that pair of concepts co-occurs in another saved item
 
-Both require `Authorization: Bearer <supabase-access-token>`.
+All three require `Authorization: Bearer <supabase-access-token>`.
 
-## What's next (Phase 4)
+## What's next (Phase 5)
 
-Extracting concepts and entities from each saved item and building the
-graph that connects them -- the part that makes Mindweave more than "chat
-with your notes."
+The frontend: sign-in, the save/chat UI, and rendering `/api/graph` as an
+actual interactive graph the user can explore.
