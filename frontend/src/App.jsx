@@ -83,7 +83,7 @@ export default function App() {
       <ItemsPanel
         userEmail={session.user.email}
         onSignOut={() => supabase.auth.signOut()}
-        onItemSaved={() => setRefreshKey((key) => key + 1)}
+        onItemsChanged={() => setRefreshKey((key) => key + 1)}
         width={isMobile ? undefined : leftWidth}
       />
       {!isMobile && <div className="resize-handle" onMouseDown={startDrag('left')} />}

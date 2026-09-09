@@ -30,6 +30,12 @@ async function authorizedFetch(path, options = {}) {
     throw new Error(typeof detail === 'string' ? detail : `Request failed (${response.status}).`)
   }
 
+  // A 204 (used by DELETE) has no body -- calling .json() on that throws,
+  // since an empty string isn't valid JSON.
+  if (response.status === 204) {
+    return null
+  }
+
   return response.json()
 }
 
@@ -53,4 +59,8 @@ export function askQuestion(question) {
 
 export function getGraph() {
   return authorizedFetch('/api/graph')
+}
+
+export function deleteItem(id) {
+  return authorizedFetch(`/api/items/${id}`, { method: 'DELETE' })
 }

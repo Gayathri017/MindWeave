@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { listItems, saveItem } from '../lib/api'
+import { deleteItem, listItems, saveItem } from '../lib/api'
 
 const URL_PATTERN = /^https?:\/\//i
 
@@ -16,7 +16,7 @@ function timeAgo(isoString) {
   return then.toLocaleDateString()
 }
 
-export default function ItemsPanel({ userEmail, onSignOut, onItemSaved, width }) {
+export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -54,11 +54,26 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemSaved, width })
       await saveItem({ sourceType, content: trimmed })
       setContent('')
       await loadItems()
-      onItemSaved?.()
+      onItemsChanged?.()
     } catch (err) {
       setError(err.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleDelete(itemId) {
+    const confirmed = window.confirm(
+      'Delete this saved item? Any concepts that only came from it will be removed from your graph too.'
+    )
+    if (!confirmed) return
+
+    try {
+      await deleteItem(itemId)
+      await loadItems()
+      onItemsChanged?.()
+    } catch (err) {
+      setError(err.message)
     }
   }
 
@@ -78,7 +93,18 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemSaved, width })
         )}
         {items.map((item) => (
           <div className="item-card" key={item.id}>
-            <p className="title">{item.title || item.preview || item.source_url}</p>
+            <div className="item-card-header">
+              <p className="title">{item.title || item.preview || item.source_url}</p>
+              <button
+                type="button"
+                className="delete-button"
+                onClick={() => handleDelete(item.id)}
+                aria-label="Delete this item"
+                title="Delete"
+              >
+                &times;
+              </button>
+            </div>
             <p className="time">{timeAgo(item.created_at)}</p>
             {item.concepts.map((concept, index) => (
               <span className={`tag${index === 0 ? ' orange' : ''}`} key={concept}>

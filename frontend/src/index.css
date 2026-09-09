@@ -196,6 +196,31 @@ button:disabled {
   padding: 14px 16px;
 }
 
+.item-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.item-card-header .title {
+  flex: 1;
+}
+
+.delete-button {
+  background: none;
+  border: none;
+  color: var(--text-muted-dark);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+
+.delete-button:hover {
+  color: var(--danger);
+}
+
 .item-card .title {
   font-size: 14px;
   font-weight: 500;
