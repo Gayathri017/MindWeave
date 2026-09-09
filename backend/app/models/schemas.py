@@ -20,6 +20,10 @@ class ItemSummary(BaseModel):
     created_at: datetime
 
 
+class ItemWithConcepts(ItemSummary):
+    concepts: list[str] = Field(default_factory=list)
+
+
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2_000)
 

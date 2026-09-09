@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_user_id
 from app.config import get_settings
 from app.database import get_db_for_request
-from app.models.schemas import ChatRequest, ChatResponse, ItemSummary, SaveItemRequest
+from app.models.schemas import ChatRequest, ChatResponse, ItemSummary, ItemWithConcepts, SaveItemRequest
 from app.services.ingestion import DailyLimitExceeded, save_item
+from app.services.items import list_items
 from app.services.retrieval import answer_question
 
 router = APIRouter()
@@ -37,6 +38,14 @@ async def create_item(
         title=item.title,
         created_at=item.created_at,
     )
+
+
+@router.get("/items", response_model=list[ItemWithConcepts])
+async def read_items(
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> list[ItemWithConcepts]:
+    return await list_items(session, user_id)
 
 
 @router.post("/chat", response_model=ChatResponse)
