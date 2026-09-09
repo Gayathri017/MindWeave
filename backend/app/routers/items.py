@@ -1,5 +1,7 @@
 """HTTP routes for saving items and chatting with the user's saved knowledge."""
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -10,7 +12,7 @@ from app.config import get_settings
 from app.database import get_db_for_request
 from app.models.schemas import ChatRequest, ChatResponse, ItemSummary, ItemWithConcepts, SaveItemRequest
 from app.services.ingestion import DailyLimitExceeded, save_item
-from app.services.items import list_items
+from app.services.items import delete_item, list_items
 from app.services.retrieval import answer_question
 
 router = APIRouter()
@@ -46,6 +48,17 @@ async def read_items(
     session: AsyncSession = Depends(get_db_for_request),
 ) -> list[ItemWithConcepts]:
     return await list_items(session, user_id)
+
+
+@router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_item(
+    item_id: uuid.UUID,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> None:
+    deleted = await delete_item(session, user_id, item_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
 
 
 @router.post("/chat", response_model=ChatResponse)

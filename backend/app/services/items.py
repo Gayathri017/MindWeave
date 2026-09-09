@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import Concept, ConceptMention, Item
@@ -63,3 +63,33 @@ async def list_items(session: AsyncSession, user_id: str, limit: int = _DEFAULT_
         )
         for item in items
     ]
+
+
+async def delete_item(session: AsyncSession, user_id: str, item_id: uuid.UUID) -> bool:
+    """Delete an item, then clean up any concepts left with no items behind them.
+
+    Deleting the item cascades (via the foreign keys in db/schema.sql) to
+    its chunks and concept_mentions automatically. But concepts themselves
+    are independent of any one item -- after that cascade, a concept that
+    only ever appeared in this item now has zero mentions left. Left alone,
+    it would sit in the graph forever as a node pointing at nothing. This
+    finds and removes exactly those now-orphaned concepts (which in turn
+    cascades to any concept_links involving them).
+
+    Returns True if an item was actually deleted, False if nothing matched
+    (already gone, or never belonged to this user).
+    """
+    result = await session.execute(delete(Item).where(Item.id == item_id, Item.user_id == user_id))
+    if result.rowcount == 0:
+        return False
+
+    orphaned = await session.execute(
+        select(Concept.id)
+        .where(Concept.user_id == user_id)
+        .where(~Concept.id.in_(select(ConceptMention.concept_id)))
+    )
+    orphaned_ids = [row[0] for row in orphaned.all()]
+    if orphaned_ids:
+        await session.execute(delete(Concept).where(Concept.id.in_(orphaned_ids)))
+
+    return True
