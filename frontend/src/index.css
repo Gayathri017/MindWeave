@@ -1,0 +1,121 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500&display=swap');
+
+:root {
+  --olive-dark: #2E2B1E;
+  --olive: #4E4B30;
+  --olive-card: #5C5936;
+  --cream: #F3ECDD;
+  --cream-card: #FFFFFF;
+  --graph-dark: #241A12;
+  --orange: #D97A34;
+  --orange-glow: rgba(217, 122, 52, 0.4);
+  --sage: #8A9464;
+  --sage-glow: rgba(138, 148, 100, 0.35);
+  --text-on-dark: #F0EAD6;
+  --text-on-cream: #2B2417;
+  --text-muted-dark: #B8B296;
+  --text-muted-cream: #8A8371;
+  --danger: #C24C3B;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  color: var(--text-on-cream);
+  background: var(--cream);
+}
+
+.wordmark {
+  font-family: 'Fraunces', serif;
+  font-weight: 500;
+}
+
+input, button, textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* --- Loading / auth screens --- */
+
+.centered-screen {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--olive-dark);
+  color: var(--text-on-dark);
+}
+
+.signin-card {
+  width: min(360px, 88vw);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.signin-card .wordmark {
+  font-size: 26px;
+  margin: 0;
+}
+
+.signin-card .tagline {
+  font-size: 14px;
+  color: var(--text-muted-dark);
+  margin: -8px 0 4px;
+  line-height: 1.5;
+}
+
+.signin-card input[type="email"] {
+  background: var(--olive);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: var(--text-on-dark);
+}
+
+.signin-card input[type="email"]::placeholder {
+  color: var(--text-muted-dark);
+}
+
+.signin-card input[type="email"]:focus {
+  outline: none;
+  border-color: var(--orange);
+}
+
+.signin-card button {
+  background: var(--orange);
+  color: #FFF6EC;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-weight: 500;
+}
+
+.signin-card .error {
+  font-size: 13px;
+  color: #F0A695;
+  margin: 0;
+}
+
+.signin-card .confirmation {
+  font-size: 14px;
+  color: var(--text-muted-dark);
+  line-height: 1.6;
+}
