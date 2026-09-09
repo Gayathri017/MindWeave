@@ -1,0 +1,29 @@
+"""Pydantic request/response models for the public API."""
+
+import uuid
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class SaveItemRequest(BaseModel):
+    source_type: Literal["url", "text"]
+    content: str = Field(..., min_length=1, max_length=50_000, description="A URL, or raw text to save.")
+
+
+class ItemSummary(BaseModel):
+    id: uuid.UUID
+    source_type: str
+    source_url: str | None
+    title: str | None
+    created_at: datetime
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=2_000)
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    sources: list[str] = Field(default_factory=list, description="Item ids the answer drew from.")
