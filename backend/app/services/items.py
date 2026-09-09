@@ -9,6 +9,15 @@ from app.models.orm import Concept, ConceptMention, Item
 from app.models.schemas import ItemWithConcepts
 
 _DEFAULT_LIMIT = 100
+_PREVIEW_LENGTH = 100
+
+
+def _make_preview(raw_text: str, limit: int = _PREVIEW_LENGTH) -> str:
+    """First ~100 characters, cut at a word boundary rather than mid-word."""
+    stripped = raw_text.strip()
+    if len(stripped) <= limit:
+        return stripped
+    return stripped[:limit].rsplit(" ", 1)[0] + "\u2026"
 
 
 async def list_items(session: AsyncSession, user_id: str, limit: int = _DEFAULT_LIMIT) -> list[ItemWithConcepts]:
@@ -50,6 +59,7 @@ async def list_items(session: AsyncSession, user_id: str, limit: int = _DEFAULT_
             title=item.title,
             created_at=item.created_at,
             concepts=concepts_by_item.get(item.id, []),
+            preview=_make_preview(item.raw_text),
         )
         for item in items
     ]

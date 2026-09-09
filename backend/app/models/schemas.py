@@ -22,7 +22,9 @@ class ItemSummary(BaseModel):
 
 class ItemWithConcepts(ItemSummary):
     concepts: list[str] = Field(default_factory=list)
-
+    preview: str = Field(
+        default="", description="First ~100 characters of the saved text, for display when there's no title."
+    )
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2_000)
