@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { askQuestion } from '../lib/api'
 
 export default function ChatPanel() {
@@ -37,7 +38,11 @@ export default function ChatPanel() {
         )}
         {messages.map((message, index) => (
           <div className={`bubble ${message.role === 'user' ? 'user' : 'answer'}`} key={index}>
-            {message.text}
+            {message.role === 'answer' ? (
+              <ReactMarkdown>{message.text}</ReactMarkdown>
+            ) : (
+              message.text
+            )}
           </div>
         ))}
         {asking && <div className="bubble answer">Thinking&hellip;</div>}

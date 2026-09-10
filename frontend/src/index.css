@@ -322,6 +322,29 @@ button:disabled {
   border: 1px solid rgba(43, 36, 23, 0.08);
 }
 
+.bubble.answer p {
+  margin: 0 0 8px;
+}
+
+.bubble.answer p:last-child {
+  margin-bottom: 0;
+}
+
+.bubble.answer ul,
+.bubble.answer ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.bubble.answer li {
+  margin-bottom: 2px;
+}
+
+.bubble.answer strong {
+  font-weight: 600;
+  color: var(--text-on-cream);
+}
+
 .chat-form {
   margin-top: 16px;
 }
