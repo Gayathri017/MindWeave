@@ -1,5 +1,6 @@
 """HTTP routes for saving items and chatting with the user's saved knowledge."""
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -18,6 +19,7 @@ from app.services.retrieval import answer_question
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/items", response_model=ItemSummary, status_code=status.HTTP_201_CREATED)
@@ -69,5 +71,18 @@ async def chat(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_for_request),
 ) -> ChatResponse:
-    answer, source_ids = await answer_question(session, user_id, body.question)
+    try:
+        answer, source_ids = await answer_question(session, user_id, body.question)
+    except Exception as exc:
+        # Catching broadly and deliberately: the Gemini SDK's specific
+        # exception classes live in a private module we shouldn't depend
+        # on (it could change without notice), and every failure mode
+        # here -- rate limits, timeouts, a transient outage -- deserves
+        # the same friendly response, not a raw 500 with a stack trace.
+        logger.exception("Chat failed for user %s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The AI service is busy or temporarily unavailable. Please try again in a few seconds.",
+        ) from exc
+
     return ChatResponse(answer=answer, sources=source_ids)

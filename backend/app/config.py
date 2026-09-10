@@ -20,6 +20,11 @@ class Settings(BaseSettings):
 
     environment: str = "development"
     cors_origins: str = "http://localhost:5173"
+    # Fallback only, used when a save request doesn't include its own
+    # timezone (see SaveItemRequest.timezone). Deliberately UTC, not any
+    # specific region -- this app has no fixed home location, so "today"
+    # should come from whoever is actually using it, not a hardcoded place.
+    default_timezone: str = "UTC"
 
     max_items_per_user_per_day: int = 50
     max_chat_messages_per_user_per_day: int = 100

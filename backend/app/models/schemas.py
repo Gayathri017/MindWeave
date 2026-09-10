@@ -10,6 +10,10 @@ from pydantic import BaseModel, Field
 class SaveItemRequest(BaseModel):
     source_type: Literal["url", "text"]
     content: str = Field(..., min_length=1, max_length=50_000, description="A URL, or raw text to save.")
+    timezone: str | None = Field(
+        default=None,
+        description="IANA timezone name (e.g. 'Asia/Kolkata'), detected client-side. Falls back to UTC if omitted or not a real timezone.",
+    )
 
 
 class ItemSummary(BaseModel):
@@ -25,6 +29,7 @@ class ItemWithConcepts(ItemSummary):
     preview: str = Field(
         default="", description="First ~100 characters of the saved text, for display when there's no title."
     )
+
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2_000)

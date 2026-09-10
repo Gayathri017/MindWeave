@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.orm import Chunk, Item
 from app.models.schemas import SaveItemRequest
 from app.services.chunking import chunk_text
+from app.services.dates import resolve_relative_dates, resolve_today
 from app.services.extraction import extract_concepts, store_concepts_for_item
 from app.services.gemini_client import embed_texts
 
@@ -72,7 +73,22 @@ async def save_item(
     session.add(item)
     await session.flush()  # populates item.id without committing yet
 
-    pieces = chunk_text(text)
+    # For the user's own typed notes -- not scraped URLs, whose "tomorrow"
+    # is relative to whenever the article was written, not when it was
+    # saved -- resolve relative date phrases into absolute ones before
+    # chunking. This is what lets a later question like "what's on 10
+    # Sept" actually find a note that only ever said "tomorrow". raw_text
+    # above stays exactly as the user typed it; only the copy used for
+    # search gets the date annotations added.
+    text_for_retrieval = text
+    if request.source_type == "text":
+        try:
+            reference_date = resolve_today(request.timezone)
+            text_for_retrieval = resolve_relative_dates(text, reference_date)
+        except Exception:
+            logger.exception("Date resolution failed for item %s; using original text.", item.id)
+
+    pieces = chunk_text(text_for_retrieval)
     if pieces:
         vectors = embed_texts(pieces)
         for content, vector in zip(pieces, vectors):

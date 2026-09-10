@@ -44,9 +44,14 @@ export function listItems() {
 }
 
 export function saveItem({ sourceType, content }) {
+  // A standard browser API -- returns the user's actual IANA timezone
+  // (e.g. 'Asia/Kolkata', 'America/Chicago'), not a guess or a fixed
+  // region. This is what lets "tomorrow" resolve to the right date for
+  // whoever is using the app, wherever they are.
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   return authorizedFetch('/api/items', {
     method: 'POST',
-    body: JSON.stringify({ source_type: sourceType, content }),
+    body: JSON.stringify({ source_type: sourceType, content, timezone }),
   })
 }
 
