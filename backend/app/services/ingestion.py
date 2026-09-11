@@ -1,4 +1,4 @@
-"""Orchestrates turning a saved URL or note into searchable, embedded chunks."""
+"""Orchestrates turning a saved URL, note, or audio recording into searchable, embedded chunks."""
 
 import logging
 
@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.orm import Chunk, Item
 from app.models.schemas import SaveItemRequest
 from app.services.chunking import chunk_text
-from app.services.dates import resolve_relative_dates, resolve_today
-from app.services.extraction import extract_concepts, store_concepts_for_item
-from app.services.gemini_client import embed_texts
+from app.services.dates import resolve_today
+from app.services.extraction import enrich_note, extract_concepts, store_concepts_for_item
+from app.services.gemini_client import embed_texts, generate_title, transcribe_audio
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +41,20 @@ async def _extract_text_from_url(url: str) -> tuple[str, str | None]:
     return text, title
 
 
-async def save_item(
+async def _finish_saving_item(
     session: AsyncSession,
     user_id: str,
-    request: SaveItemRequest,
+    source_type: str,
+    source_url: str | None,
+    title: str | None,
+    text: str,
+    timezone: str | None,
     daily_limit: int,
 ) -> Item:
-    """Save an item, enforcing the per-user daily cap, then chunk and embed it."""
+    """The shared tail end of saving any item, regardless of where its text
+    came from (typed, scraped, or transcribed): enforce the daily cap,
+    store the item, resolve dates, chunk, embed, and extract concepts.
+    """
     today_count = await session.scalar(
         select(func.count()).select_from(Item).where(
             Item.user_id == user_id,
@@ -57,15 +64,9 @@ async def save_item(
     if today_count is not None and today_count >= daily_limit:
         raise DailyLimitExceeded(f"Daily save limit of {daily_limit} reached.")
 
-    if request.source_type == "url":
-        text, title = await _extract_text_from_url(request.content)
-        source_url = request.content
-    else:
-        text, title, source_url = request.content, None, None
-
     item = Item(
         user_id=user_id,
-        source_type=request.source_type,
+        source_type=source_type,
         source_url=source_url,
         title=title,
         raw_text=text,
@@ -73,20 +74,29 @@ async def save_item(
     session.add(item)
     await session.flush()  # populates item.id without committing yet
 
-    # For the user's own typed notes -- not scraped URLs, whose "tomorrow"
-    # is relative to whenever the article was written, not when it was
-    # saved -- resolve relative date phrases into absolute ones before
-    # chunking. This is what lets a later question like "what's on 10
-    # Sept" actually find a note that only ever said "tomorrow". raw_text
-    # above stays exactly as the user typed it; only the copy used for
-    # search gets the date annotations added.
+    # For the user's own words -- typed notes or spoken/transcribed ones,
+    # not scraped URLs, whose "tomorrow" is relative to whenever the
+    # article was written, not when it was saved -- resolve relative date
+    # phrases AND extract concepts in a single combined Gemini call. This
+    # is what lets a later question like "what's on 10 Sept" actually
+    # find a note (or a lecture) that only ever said "tomorrow", while
+    # using half the API calls of doing these as two separate requests.
+    # raw_text above stays exactly as written/transcribed; only the copy
+    # used for search gets the date annotations added.
     text_for_retrieval = text
-    if request.source_type == "text":
+    concept_names: list[str] = []
+
+    if source_type in ("text", "audio"):
         try:
-            reference_date = resolve_today(request.timezone)
-            text_for_retrieval = resolve_relative_dates(text, reference_date)
+            reference_date = resolve_today(timezone)
+            text_for_retrieval, concept_names = enrich_note(text, reference_date)
         except Exception:
-            logger.exception("Date resolution failed for item %s; using original text.", item.id)
+            logger.exception("Enrichment failed for item %s; using original text, no concepts.", item.id)
+    else:
+        try:
+            concept_names = extract_concepts(text)
+        except Exception:
+            logger.exception("Concept extraction failed for item %s; item was still saved.", item.id)
 
     pieces = chunk_text(text_for_retrieval)
     if pieces:
@@ -94,13 +104,45 @@ async def save_item(
         for content, vector in zip(pieces, vectors):
             session.add(Chunk(item_id=item.id, user_id=user_id, content=content, embedding=vector))
 
-    try:
-        concept_names = extract_concepts(text)
-        await store_concepts_for_item(session, user_id, item.id, concept_names)
-    except Exception:
-        # Concept extraction is an enhancement on top of the core save --
-        # if Gemini hiccups here, the user's note and its searchability
-        # (chunks/embeddings above) must still be saved successfully.
-        logger.exception("Concept extraction failed for item %s; item was still saved.", item.id)
+    if concept_names:
+        try:
+            await store_concepts_for_item(session, user_id, item.id, concept_names)
+        except Exception:
+            logger.exception("Storing concepts failed for item %s; item was still saved.", item.id)
 
     return item
+
+
+async def save_item(
+    session: AsyncSession,
+    user_id: str,
+    request: SaveItemRequest,
+    daily_limit: int,
+) -> Item:
+    """Save a typed note or a URL."""
+    if request.source_type == "url":
+        text, title = await _extract_text_from_url(request.content)
+        source_url = request.content
+    else:
+        text, title, source_url = request.content, None, None
+
+    return await _finish_saving_item(
+        session, user_id, request.source_type, source_url, title, text, request.timezone, daily_limit
+    )
+
+
+async def save_audio_item(
+    session: AsyncSession,
+    user_id: str,
+    audio_bytes: bytes,
+    mime_type: str,
+    timezone: str | None,
+    daily_limit: int,
+) -> Item:
+    """Transcribe a recording (live-captured or an uploaded audio file --
+    to the backend, both are just audio bytes) and save it the same way
+    as any other item.
+    """
+    transcript = transcribe_audio(audio_bytes, mime_type)
+    title = generate_title(transcript)
+    return await _finish_saving_item(session, user_id, "audio", None, title, transcript, timezone, daily_limit)

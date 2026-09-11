@@ -6,6 +6,7 @@ send Google, and to swap providers later without touching business logic.
 This key is only ever read here, server-side; it never reaches the client.
 """
 
+import io
 from typing import TypeVar
 
 from google import genai
@@ -67,3 +68,36 @@ def generate_text(prompt: str, system_instruction: str | None = None) -> str:
         store=False,
     )
     return interaction.output_text
+
+
+def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
+    """Upload a recording and return its transcript.
+
+    Uses a dedicated transcription model rather than the general chat
+    model -- it's built specifically for accurate speech-to-text (a full
+    lecture, not a quick voice memo), and the audio never touches disk on
+    our side: it goes from memory straight to Gemini's Files API and is
+    discarded once this function returns.
+    """
+    audio_stream = io.BytesIO(audio_bytes)
+    uploaded_file = _client.files.upload(file=audio_stream, config={"mime_type": mime_type})
+
+    interaction = _client.interactions.create(
+        model=settings.gemini_transcribe_model,
+        input=[{"type": "audio", "uri": uploaded_file.uri, "mime_type": uploaded_file.mime_type}],
+        store=False,
+    )
+    return interaction.output_text
+
+
+def generate_title(text: str, max_chars_considered: int = 3000) -> str:
+    """A short, descriptive title for a long piece of text, e.g. a lecture
+    transcript -- unlike a short note, the first 100 characters of a
+    transcript usually aren't a meaningful title on their own.
+    """
+    system_instruction = (
+        "Write a short, specific title for this content -- six words or "
+        "fewer, no quotation marks, no trailing punctuation."
+    )
+    title = generate_text(text[:max_chars_considered], system_instruction=system_instruction)
+    return title.strip().strip('"')

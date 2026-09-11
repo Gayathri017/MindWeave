@@ -8,7 +8,7 @@ create extension if not exists vector;
 create table if not exists items (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references auth.users (id) on delete cascade,
-    source_type text not null check (source_type in ('url', 'text')),
+    source_type text not null check (source_type in ('url', 'text', 'audio', 'pdf')),
     source_url text,
     title text,
     raw_text text not null,

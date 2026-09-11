@@ -3,7 +3,7 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from app.auth import get_current_user_id
 from app.config import get_settings
 from app.database import get_db_for_request
 from app.models.schemas import ChatRequest, ChatResponse, ItemSummary, ItemWithConcepts, SaveItemRequest
-from app.services.ingestion import DailyLimitExceeded, save_item
+from app.services.ingestion import DailyLimitExceeded, save_audio_item, save_item
 from app.services.items import delete_item, list_items
 from app.services.retrieval import answer_question
 
@@ -20,6 +20,8 @@ router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+_MAX_AUDIO_BYTES = 100 * 1024 * 1024  # 100 MB -- generous for a multi-hour lecture
 
 
 @router.post("/items", response_model=ItemSummary, status_code=status.HTTP_201_CREATED)
@@ -34,6 +36,52 @@ async def create_item(
         item = await save_item(session, user_id, body, settings.max_items_per_user_per_day)
     except DailyLimitExceeded as exc:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+
+    return ItemSummary(
+        id=item.id,
+        source_type=item.source_type,
+        source_url=item.source_url,
+        title=item.title,
+        created_at=item.created_at,
+    )
+
+
+@router.post("/items/audio", response_model=ItemSummary, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
+async def upload_audio_item(
+    request: Request,
+    file: UploadFile = File(...),
+    timezone: str | None = Form(default=None),
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> ItemSummary:
+    """Accepts an audio recording -- whether just captured live in the
+    browser or picked from an existing file, both arrive here the same
+    way -- transcribes it, and saves it through the normal pipeline.
+    """
+    audio_bytes = await file.read()
+    if len(audio_bytes) > _MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Audio file is too large (max {_MAX_AUDIO_BYTES // (1024 * 1024)} MB).",
+        )
+
+    mime_type = file.content_type or "audio/webm"
+
+    try:
+        item = await save_audio_item(
+            session, user_id, audio_bytes, mime_type, timezone, settings.max_items_per_user_per_day
+        )
+    except DailyLimitExceeded as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+    except Exception as exc:
+        # Broad and deliberate, same reasoning as the chat endpoint --
+        # transcription failures shouldn't surface as a raw 500.
+        logger.exception("Audio transcription failed for user %s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not transcribe that recording. Please try again in a few seconds.",
+        ) from exc
 
     return ItemSummary(
         id=item.id,

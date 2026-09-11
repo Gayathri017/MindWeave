@@ -9,6 +9,7 @@ between two notes.
 """
 
 import uuid
+from datetime import date
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -19,12 +20,25 @@ from app.models.orm import Concept, ConceptLink, ConceptMention
 from app.services.gemini_client import generate_structured
 from app.services.graph_math import unique_pairs
 
-_SYSTEM_INSTRUCTION = (
+_CONCEPTS_SYSTEM_INSTRUCTION = (
     "Extract the key concepts, entities, and topics this text is really "
     "about. Return short, specific names (2-4 words each, e.g. "
     "'knowledge graphs', not 'the idea of representing information as "
     "connected nodes'). Prefer concrete nouns and named ideas over "
     "generic words like 'thing' or 'idea'."
+)
+
+_ENRICH_SYSTEM_INSTRUCTION_TEMPLATE = (
+    "The user wrote this on {reference_date}. Do two things in one pass: "
+    "(1) rewrite the text, resolving any relative date or time references "
+    "-- 'tomorrow', 'next Monday', 'in two weeks', 'yesterday', etc. -- by "
+    "adding the actual calendar date in parentheses right after each one, "
+    "e.g. 'tomorrow (Thursday, September 10, 2026)', keeping every other "
+    "word as close to the original as possible; if there are no relative "
+    "date references, leave the text completely unchanged. (2) Extract "
+    "3-8 short, specific concept or entity names (2-4 words each) the "
+    "text is really about -- concrete nouns and named ideas, not generic "
+    "words like 'thing' or 'idea'."
 )
 
 
@@ -37,23 +51,57 @@ class ExtractedConcepts(BaseModel):
     )
 
 
-def extract_concepts(text: str) -> list[str]:
-    """Ask Gemini for the key concepts in a piece of text.
+class _EnrichedNote(BaseModel):
+    resolved_text: str = Field(
+        ..., description="The text with relative dates resolved to absolute ones, or unchanged if there were none."
+    )
+    concepts: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=8,
+        description="3-8 short, specific concept or entity names from the text.",
+    )
 
-    Names are lowercased before returning, so "Knowledge Graphs" and
-    "knowledge graphs" in two different items are treated as the same
-    node rather than fragmenting the graph. Deliberate simplification --
-    proper synonym/fuzzy matching is a good v2, not needed to ship v1.
+
+def _normalize_concept_names(names: list[str]) -> list[str]:
+    """Lowercase and de-duplicate, so "Knowledge Graphs" and "knowledge
+    graphs" in two different items are treated as the same node rather
+    than fragmenting the graph. Deliberate simplification -- proper
+    synonym/fuzzy matching is a good v2, not needed to ship v1.
     """
-    result = generate_structured(text, ExtractedConcepts, system_instruction=_SYSTEM_INSTRUCTION)
     seen: set[str] = set()
-    names: list[str] = []
-    for name in result.concepts:
+    result: list[str] = []
+    for name in names:
         normalized = name.strip().lower()
         if normalized and normalized not in seen:
             seen.add(normalized)
-            names.append(normalized)
-    return names
+            result.append(normalized)
+    return result
+
+
+def extract_concepts(text: str) -> list[str]:
+    """Ask Gemini for the key concepts in a piece of text.
+
+    Used on its own for scraped URLs, where there's no date resolution
+    to combine it with (see enrich_note for typed notes and transcripts).
+    """
+    result = generate_structured(text, ExtractedConcepts, system_instruction=_CONCEPTS_SYSTEM_INSTRUCTION)
+    return _normalize_concept_names(result.concepts)
+
+
+def enrich_note(text: str, reference_date: date) -> tuple[str, list[str]]:
+    """Resolve relative dates AND extract concepts in a single Gemini call.
+
+    These used to be two separate calls that both read the same text --
+    combining them halves the API usage (and the rate-limit exposure) for
+    every typed note and voice transcript, with no loss of quality.
+    Returns (resolved_text, concept_names).
+    """
+    system_instruction = _ENRICH_SYSTEM_INSTRUCTION_TEMPLATE.format(
+        reference_date=reference_date.strftime("%A, %B %d, %Y"),
+    )
+    result = generate_structured(text, _EnrichedNote, system_instruction=system_instruction)
+    return result.resolved_text, _normalize_concept_names(result.concepts)
 
 
 async def store_concepts_for_item(
@@ -74,11 +122,6 @@ async def store_concepts_for_item(
 
 
 async def _get_or_create_concept(session: AsyncSession, user_id: str, name: str) -> uuid.UUID:
-    # ON CONFLICT DO UPDATE (even a no-op update) lets Postgres RETURNING
-    # give us the id whether this was a fresh insert or an existing row --
-    # a single atomic round-trip instead of select-then-maybe-insert,
-    # which avoids a race if the same concept is saved twice in quick
-    # succession (e.g. a double-click, or two browser tabs).
     stmt = (
         pg_insert(Concept)
         .values(user_id=user_id, name=name)
