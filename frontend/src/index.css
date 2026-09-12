@@ -277,6 +277,114 @@ button:disabled {
   border-color: var(--orange);
 }
 
+.save-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.save-row .save-input {
+  flex: 1;
+}
+
+.icon-button {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--olive);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  color: var(--text-muted-dark);
+}
+
+.icon-button:hover {
+  color: var(--text-on-dark);
+  border-color: var(--orange);
+}
+
+.upload-menu-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.upload-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: var(--olive-card);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 6px;
+  min-width: 180px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 10;
+}
+
+.upload-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-on-dark);
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.upload-menu button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.recording-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--olive);
+  border: 1px solid rgba(217, 122, 52, 0.4);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.recording-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex-shrink: 0;
+  animation: recording-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes recording-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
+}
+
+.recording-time {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-on-dark);
+}
+
+.stop-button {
+  background: var(--orange);
+  color: #FFF6EC;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 /* --- Middle panel: chat --- */
 
 .middle-panel {
