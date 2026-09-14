@@ -59,6 +59,33 @@ def generate_structured(
     return schema.model_validate_json(interaction.output_text)
 
 
+def generate_structured_from_file(
+    file_bytes: bytes,
+    mime_type: str,
+    schema: type[_SchemaT],
+    system_instruction: str | None = None,
+) -> _SchemaT:
+    """Like `generate_structured`, but the input is a file (PDF, image,
+    etc.) rather than text -- used for pulling structured data out of
+    documents, the same way `transcribe_audio` uploads audio.
+    """
+    file_stream = io.BytesIO(file_bytes)
+    uploaded_file = _client.files.upload(file=file_stream, config={"mime_type": mime_type})
+
+    interaction = _client.interactions.create(
+        model=settings.gemini_chat_model,
+        input=[{"type": "document", "uri": uploaded_file.uri, "mime_type": uploaded_file.mime_type}],
+        system_instruction=system_instruction,
+        response_format={
+            "type": "text",
+            "mime_type": "application/json",
+            "schema": schema.model_json_schema(),
+        },
+        store=False,
+    )
+    return schema.model_validate_json(interaction.output_text)
+
+
 def generate_text(prompt: str, system_instruction: str | None = None) -> str:
     """Ask Gemini for a plain-text response (used for the RAG chat answer)."""
     interaction = _client.interactions.create(

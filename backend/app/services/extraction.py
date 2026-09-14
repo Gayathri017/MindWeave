@@ -17,7 +17,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import Concept, ConceptLink, ConceptMention
-from app.services.gemini_client import generate_structured
+from app.services.gemini_client import generate_structured, generate_structured_from_file
 from app.services.graph_math import unique_pairs
 
 _CONCEPTS_SYSTEM_INSTRUCTION = (
@@ -60,6 +60,67 @@ class _EnrichedNote(BaseModel):
         min_length=1,
         max_length=8,
         description="3-8 short, specific concept or entity names from the text.",
+    )
+
+
+_DOCUMENT_SYSTEM_INSTRUCTION = (
+    "You are reading an uploaded document or photo, which could be almost "
+    "anything -- a research paper, a receipt or invoice, a form, a letter, "
+    "a screenshot, a scanned page. Classify it and pull out everything of "
+    "value:\n"
+    "- document_type: a short, specific label, e.g. 'receipt', 'invoice', "
+    "'research paper', 'form', 'letter', 'other'.\n"
+    "- full_text: the complete text content, transcribed as accurately as "
+    "possible, in whatever language it's written in -- don't translate it. "
+    "For a receipt/invoice this can be brief (vendor, date, totals); for a "
+    "paper or long document, include the full body text.\n"
+    "- key_fields: any distinct named values worth pulling out on their "
+    "own, as plain string key/value pairs -- e.g. for a receipt: vendor, "
+    "date, subtotal, tax, total, payment_method; for a paper: title, "
+    "authors, journal, publication_date. Omit any field that isn't present "
+    "-- don't guess or invent values.\n"
+    "- line_items: for a receipt, invoice, or itemized bill, one entry per "
+    "line (description, quantity, unit_price, amount). Leave empty for "
+    "documents with no itemized list.\n"
+    "- figures: for a paper, report, or slide deck, one entry per figure, "
+    "chart, graph, or table (label like 'Figure 2' or 'Table 1', its "
+    "caption if present, and a description of what it actually shows -- "
+    "the trend, the comparison, the data -- not just the caption restated). "
+    "Leave empty if the document has no figures."
+)
+
+
+class ExtractedLineItem(BaseModel):
+    description: str
+    quantity: str | None = Field(default=None, description="Quantity as written, e.g. '2' or '1.5 kg'.")
+    unit_price: str | None = Field(default=None, description="Price per unit as written, with currency symbol if shown.")
+    amount: str | None = Field(default=None, description="Line total as written, with currency symbol if shown.")
+
+
+class ExtractedFigure(BaseModel):
+    label: str = Field(..., description="e.g. 'Figure 2', 'Table 1', 'Chart'.")
+    caption: str | None = Field(default=None, description="The figure's own caption, if it has one.")
+    description: str = Field(..., description="What the figure/graph/chart actually shows.")
+
+
+class DocumentExtraction(BaseModel):
+    document_type: str = Field(..., description="Short classification, e.g. 'receipt', 'research paper', 'form'.")
+    full_text: str = Field(..., description="The document's full text content, in its original language.")
+    key_fields: dict[str, str] = Field(
+        default_factory=dict, description="Named values worth surfacing on their own, e.g. vendor/total/date."
+    )
+    line_items: list[ExtractedLineItem] = Field(default_factory=list)
+    figures: list[ExtractedFigure] = Field(default_factory=list)
+
+
+def extract_document_content(file_bytes: bytes, mime_type: str) -> DocumentExtraction:
+    """Ask Gemini to read an uploaded document/image and pull out both its
+    plain text and whatever structured data applies -- a receipt's line
+    items and totals, a paper's figures, or just full_text with everything
+    else left empty for a document that's genuinely unstructured.
+    """
+    return generate_structured_from_file(
+        file_bytes, mime_type, DocumentExtraction, system_instruction=_DOCUMENT_SYSTEM_INSTRUCTION
     )
 
 
