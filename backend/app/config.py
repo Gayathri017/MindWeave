@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     gemini_chat_model: str = "gemini-3.8-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
     gemini_transcribe_model: str = "gemini-3.5-transcribe"
+    gemini_image_model: str = "gemini-3.1-flash-image-preview"
     embedding_dimensions: int = 768
 
     environment: str = "development"

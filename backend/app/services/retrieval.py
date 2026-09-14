@@ -1,22 +1,48 @@
 """Retrieval-augmented answering over a single user's saved knowledge."""
 
+import logging
+
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import Chunk
-from app.services.gemini_client import embed_text, generate_text
+from app.services.gemini_client import embed_text, generate_image, generate_structured
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_INSTRUCTION = (
     "You are Mindweave's assistant. Answer the user's question using ONLY "
     "the provided excerpts from their own saved notes and links. If the "
-    "excerpts don't contain the answer, say so plainly instead of guessing."
+    "excerpts don't contain the answer, say so plainly instead of guessing.\n\n"
+    "Separately, decide whether a generated image would meaningfully help "
+    "this specific answer -- e.g. the user is asking you to draw or "
+    "visualize something, or a diagram/chart would make a described "
+    "process, comparison, or figure easier to understand than text alone. "
+    "Most questions don't need one. If one would help, set image_prompt to "
+    "a detailed, self-contained description of exactly what to draw -- it "
+    "will be sent to an image generator with no other context. Otherwise "
+    "leave image_prompt null."
 )
 
 _TOP_K = 6
 
 
-async def answer_question(session: AsyncSession, user_id: str, question: str) -> tuple[str, list[str]]:
-    """Return (answer, source_item_ids) for a question over the user's saved knowledge."""
+class _ChatAnswer(BaseModel):
+    answer: str = Field(..., description="The answer to the user's question.")
+    image_prompt: str | None = Field(
+        default=None,
+        description="A detailed prompt for an image generator, only if an image would meaningfully help this answer.",
+    )
+
+
+async def answer_question(
+    session: AsyncSession, user_id: str, question: str
+) -> tuple[str, list[str], bytes | None, str | None]:
+    """Return (answer, source_item_ids, image_bytes, image_mime_type) for a
+    question over the user's saved knowledge. The image fields are None
+    unless the model decided a generated image would help this answer.
+    """
     query_vector = embed_text(question)
 
     result = await session.execute(
@@ -32,11 +58,21 @@ async def answer_question(session: AsyncSession, user_id: str, question: str) ->
             "You haven't saved anything I can answer that from yet -- "
             "save a link or note first, then ask me again.",
             [],
+            None,
+            None,
         )
 
     context = "\n\n---\n\n".join(chunk.content for chunk in matches)
     prompt = f"Saved excerpts:\n\n{context}\n\nQuestion: {question}"
 
-    answer = generate_text(prompt, system_instruction=_SYSTEM_INSTRUCTION)
+    result = generate_structured(prompt, _ChatAnswer, system_instruction=_SYSTEM_INSTRUCTION)
     source_ids = list({str(chunk.item_id) for chunk in matches})
-    return answer, source_ids
+
+    image_bytes, image_mime_type = None, None
+    if result.image_prompt:
+        try:
+            image_bytes, image_mime_type = generate_image(result.image_prompt)
+        except Exception:
+            logger.exception("Image generation failed for user %s; returning text-only answer.", user_id)
+
+    return result.answer, source_ids, image_bytes, image_mime_type

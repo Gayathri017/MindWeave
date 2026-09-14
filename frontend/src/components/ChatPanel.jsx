@@ -35,7 +35,7 @@ export default function ChatPanel() {
 
     try {
       const response = await askQuestion(trimmed)
-      setMessages((prev) => [...prev, { role: 'answer', text: response.answer }])
+      setMessages((prev) => [...prev, { role: 'answer', text: response.answer, image: response.image }])
     } catch (err) {
       setError(err.message)
     } finally {
@@ -86,6 +86,7 @@ export default function ChatPanel() {
             ) : (
               message.text
             )}
+            {message.image && <img className="chat-generated-image" src={message.image} alt="" />}
           </div>
         ))}
         {transcribing && <div className="bubble answer">Listening&hellip;</div>}

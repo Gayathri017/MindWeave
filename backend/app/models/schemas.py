@@ -46,6 +46,9 @@ class TranscriptionResponse(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: list[str] = Field(default_factory=list, description="Item ids the answer drew from.")
+    image: str | None = Field(
+        default=None, description="A data URL (data:<mime>;base64,...) for a generated image, if one was made."
+    )
 
 
 class GraphNode(BaseModel):

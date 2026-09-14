@@ -1,5 +1,6 @@
 """HTTP routes for saving items and chatting with the user's saved knowledge."""
 
+import base64
 import logging
 import uuid
 
@@ -217,7 +218,7 @@ async def chat(
     session: AsyncSession = Depends(get_db_for_request),
 ) -> ChatResponse:
     try:
-        answer, source_ids = await answer_question(session, user_id, body.question)
+        answer, source_ids, image_bytes, image_mime_type = await answer_question(session, user_id, body.question)
     except Exception as exc:
         # Catching broadly and deliberately: the Gemini SDK's specific
         # exception classes live in a private module we shouldn't depend
@@ -230,4 +231,8 @@ async def chat(
             detail="The AI service is busy or temporarily unavailable. Please try again in a few seconds.",
         ) from exc
 
-    return ChatResponse(answer=answer, sources=source_ids)
+    image = None
+    if image_bytes and image_mime_type:
+        image = f"data:{image_mime_type};base64,{base64.b64encode(image_bytes).decode()}"
+
+    return ChatResponse(answer=answer, sources=source_ids, image=image)

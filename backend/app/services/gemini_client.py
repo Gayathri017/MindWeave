@@ -6,6 +6,7 @@ send Google, and to swap providers later without touching business logic.
 This key is only ever read here, server-side; it never reaches the client.
 """
 
+import base64
 import io
 from typing import TypeVar
 
@@ -136,6 +137,24 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
         store=False,
     )
     return interaction.output_text
+
+
+def generate_image(prompt: str) -> tuple[bytes, str]:
+    """Ask Gemini's image model to generate an image from a text prompt.
+
+    Returns (image_bytes, mime_type). Raises if the model didn't return an
+    image (e.g. it refused the prompt) -- callers decide how to degrade.
+    """
+    interaction = _client.interactions.create(
+        model=settings.gemini_image_model,
+        input=prompt,
+        response_format={"type": "image"},
+        store=False,
+    )
+    image = interaction.output_image
+    if image is None or not image.data:
+        raise RuntimeError("Gemini did not return an image for this prompt.")
+    return base64.b64decode(image.data), image.mime_type or "image/png"
 
 
 def generate_title(text: str, max_chars_considered: int = 3000) -> str:

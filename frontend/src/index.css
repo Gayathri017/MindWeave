@@ -496,6 +496,13 @@ button:disabled {
   color: var(--text-on-cream);
 }
 
+.chat-generated-image {
+  display: block;
+  max-width: 100%;
+  border-radius: 10px;
+  margin-top: 8px;
+}
+
 .chat-form {
   margin-top: 16px;
 }
