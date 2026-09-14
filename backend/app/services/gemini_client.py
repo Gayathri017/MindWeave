@@ -65,16 +65,21 @@ def generate_structured_from_file(
     schema: type[_SchemaT],
     system_instruction: str | None = None,
 ) -> _SchemaT:
-    """Like `generate_structured`, but the input is a file (PDF, image,
-    etc.) rather than text -- used for pulling structured data out of
-    documents, the same way `transcribe_audio` uploads audio.
+    """Like `generate_structured`, but the input is a file (PDF or image)
+    rather than text -- used for pulling structured data out of documents,
+    the same way `transcribe_audio` uploads audio.
+
+    The API distinguishes a "document" content block (PDF only) from an
+    "image" one (JPEG/PNG/WEBP/HEIC/etc) -- passing an image as "document"
+    is rejected, so the block type has to follow the actual mime type.
     """
     file_stream = io.BytesIO(file_bytes)
     uploaded_file = _client.files.upload(file=file_stream, config={"mime_type": mime_type})
 
+    content_type = "document" if mime_type == "application/pdf" else "image"
     interaction = _client.interactions.create(
         model=settings.gemini_chat_model,
-        input=[{"type": "document", "uri": uploaded_file.uri, "mime_type": uploaded_file.mime_type}],
+        input=[{"type": content_type, "uri": uploaded_file.uri, "mime_type": uploaded_file.mime_type}],
         system_instruction=system_instruction,
         response_format={
             "type": "text",
@@ -97,7 +102,7 @@ def generate_text(prompt: str, system_instruction: str | None = None) -> str:
     return interaction.output_text
 
 
-_TRANSCRIBE_SYSTEM_INSTRUCTION = (
+_TRANSCRIBE_INSTRUCTION = (
     "Transcribe this audio exactly as spoken. Detect the spoken language "
     "automatically and write the transcript in that same language -- do "
     "not translate it into English or any other language, even if "
@@ -114,14 +119,20 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
     lecture, not a quick voice memo), and the audio never touches disk on
     our side: it goes from memory straight to Gemini's Files API and is
     discarded once this function returns.
+
+    The transcription model doesn't accept `system_instruction` (it
+    rejects the request outright if given one), so the language
+    instruction is passed as a plain text part alongside the audio instead.
     """
     audio_stream = io.BytesIO(audio_bytes)
     uploaded_file = _client.files.upload(file=audio_stream, config={"mime_type": mime_type})
 
     interaction = _client.interactions.create(
         model=settings.gemini_transcribe_model,
-        input=[{"type": "audio", "uri": uploaded_file.uri, "mime_type": uploaded_file.mime_type}],
-        system_instruction=_TRANSCRIBE_SYSTEM_INSTRUCTION,
+        input=[
+            {"type": "text", "text": _TRANSCRIBE_INSTRUCTION},
+            {"type": "audio", "uri": uploaded_file.uri, "mime_type": uploaded_file.mime_type},
+        ],
         store=False,
     )
     return interaction.output_text
