@@ -70,8 +70,17 @@ def generate_text(prompt: str, system_instruction: str | None = None) -> str:
     return interaction.output_text
 
 
+_TRANSCRIBE_SYSTEM_INSTRUCTION = (
+    "Transcribe this audio exactly as spoken. Detect the spoken language "
+    "automatically and write the transcript in that same language -- do "
+    "not translate it into English or any other language, even if "
+    "multiple languages are mixed together in the recording."
+)
+
+
 def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
-    """Upload a recording and return its transcript.
+    """Upload a recording and return its transcript, in whatever language
+    it was spoken in.
 
     Uses a dedicated transcription model rather than the general chat
     model -- it's built specifically for accurate speech-to-text (a full
@@ -85,6 +94,7 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str) -> str:
     interaction = _client.interactions.create(
         model=settings.gemini_transcribe_model,
         input=[{"type": "audio", "uri": uploaded_file.uri, "mime_type": uploaded_file.mime_type}],
+        system_instruction=_TRANSCRIBE_SYSTEM_INSTRUCTION,
         store=False,
     )
     return interaction.output_text
