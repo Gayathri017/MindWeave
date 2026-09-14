@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { deleteItem, listItems, saveItem, uploadAudio } from '../lib/api'
+import { deleteItem, listItems, saveItem, uploadAudio, uploadDocument } from '../lib/api'
 import { useAudioRecorder } from '../hooks/useAudioRecorder'
 
 const URL_PATTERN = /^https?:\/\//i
@@ -43,6 +43,59 @@ function MicIcon() {
   )
 }
 
+function formatFieldLabel(key) {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function ExtractedDataCard({ data }) {
+  const keyFields = Object.entries(data.key_fields || {})
+  const lineItems = data.line_items || []
+  const figures = data.figures || []
+
+  if (keyFields.length === 0 && lineItems.length === 0 && figures.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="extracted-data">
+      {keyFields.length > 0 && (
+        <dl className="extracted-fields">
+          {keyFields.map(([key, value]) => (
+            <div className="extracted-field" key={key}>
+              <dt>{formatFieldLabel(key)}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {lineItems.length > 0 && (
+        <table className="extracted-line-items">
+          <tbody>
+            {lineItems.map((item, index) => (
+              <tr key={index}>
+                <td>{item.description}</td>
+                <td>{item.quantity}</td>
+                <td>{item.amount || item.unit_price}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {figures.length > 0 && (
+        <ul className="extracted-figures">
+          {figures.map((figure, index) => (
+            <li key={index}>
+              <strong>{figure.label}</strong>: {figure.description}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -52,6 +105,7 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
   const [showUploadMenu, setShowUploadMenu] = useState(false)
 
   const audioFileInputRef = useRef(null)
+  const documentFileInputRef = useRef(null)
   const menuRef = useRef(null)
 
   async function loadItems() {
@@ -143,6 +197,24 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
     if (file) handleAudioReady(file)
   }
 
+  async function handleDocumentFileSelected(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    setSaving(true)
+    setError(null)
+    try {
+      await uploadDocument(file)
+      await loadItems()
+      onItemsChanged?.()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="left-panel" style={{ width }}>
       <div className="panel-header">
@@ -172,6 +244,7 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
               </button>
             </div>
             <p className="time">{timeAgo(item.created_at)}</p>
+            {item.extracted_data && <ExtractedDataCard data={item.extracted_data} />}
             {item.concepts.map((concept, index) => (
               <span className={`tag${index === 0 ? ' orange' : ''}`} key={concept}>
                 {concept}
@@ -216,6 +289,15 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
                   >
                     Upload an audio file
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowUploadMenu(false)
+                      documentFileInputRef.current?.click()
+                    }}
+                  >
+                    Upload a document or receipt
+                  </button>
                 </div>
               )}
             </div>
@@ -246,6 +328,13 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
           accept="audio/*"
           ref={audioFileInputRef}
           onChange={handleAudioFileSelected}
+          style={{ display: 'none' }}
+        />
+        <input
+          type="file"
+          accept="application/pdf,image/*"
+          ref={documentFileInputRef}
+          onChange={handleDocumentFileSelected}
           style={{ display: 'none' }}
         />
       </form>

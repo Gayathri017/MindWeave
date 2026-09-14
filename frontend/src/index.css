@@ -249,6 +249,49 @@ button:disabled {
   color: #F0C08E;
 }
 
+.extracted-data {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-muted-dark);
+}
+
+.extracted-fields {
+  margin: 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.extracted-field {
+  display: flex;
+  gap: 6px;
+}
+
+.extracted-field dt {
+  font-weight: 500;
+  color: #D3D8B8;
+}
+
+.extracted-field dd {
+  margin: 0;
+}
+
+.extracted-line-items {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 8px;
+}
+
+.extracted-line-items td {
+  padding: 2px 6px 2px 0;
+  border-bottom: 1px solid rgba(211, 216, 184, 0.12);
+}
+
+.extracted-figures {
+  margin: 0 0 8px;
+  padding-left: 16px;
+}
+
 .save-form {
   margin-top: 16px;
 }
