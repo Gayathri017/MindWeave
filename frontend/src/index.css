@@ -524,6 +524,48 @@ button:disabled {
   border-color: var(--orange);
 }
 
+.chat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-row .chat-input {
+  flex: 1;
+}
+
+.chat-mic-button {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cream-card);
+  border: 1px solid rgba(43, 36, 23, 0.1);
+  border-radius: 999px;
+  color: var(--text-muted-cream);
+}
+
+.chat-mic-button:hover {
+  color: var(--text-on-cream);
+  border-color: var(--orange);
+}
+
+.chat-recording-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--cream-card);
+  border: 1px solid rgba(217, 122, 52, 0.4);
+  border-radius: 999px;
+  padding: 10px 14px;
+}
+
+.chat-recording-bar .recording-time {
+  color: var(--text-on-cream);
+}
+
 /* --- Right panel: graph --- */
 
 .right-panel {

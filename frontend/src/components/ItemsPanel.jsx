@@ -43,6 +43,17 @@ function MicIcon() {
   )
 }
 
+function DocumentIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="9" y1="13" x2="15" y2="13" />
+      <line x1="9" y1="17" x2="13" y2="17" />
+    </svg>
+  )
+}
+
 function formatFieldLabel(key) {
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
@@ -197,21 +208,26 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
     if (file) handleAudioReady(file)
   }
 
-  async function handleDocumentFileSelected(event) {
-    const file = event.target.files?.[0]
+  async function handleDocumentFilesSelected(event) {
+    const files = Array.from(event.target.files || [])
     event.target.value = ''
-    if (!file) return
+    if (files.length === 0) return
 
     setSaving(true)
     setError(null)
-    try {
-      await uploadDocument(file)
-      await loadItems()
-      onItemsChanged?.()
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setSaving(false)
+    const failures = []
+    for (const file of files) {
+      try {
+        await uploadDocument(file)
+      } catch (err) {
+        failures.push(`${file.name}: ${err.message}`)
+      }
+    }
+    await loadItems()
+    onItemsChanged?.()
+    setSaving(false)
+    if (failures.length > 0) {
+      setError(failures.join(' — '))
     }
   }
 
@@ -289,15 +305,6 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
                   >
                     Upload an audio file
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowUploadMenu(false)
-                      documentFileInputRef.current?.click()
-                    }}
-                  >
-                    Upload a document or receipt
-                  </button>
                 </div>
               )}
             </div>
@@ -309,6 +316,17 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
               onChange={(event) => setContent(event.target.value)}
               disabled={saving}
             />
+
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => documentFileInputRef.current?.click()}
+              disabled={saving}
+              aria-label="Upload a document or receipt"
+              title="Upload a document or receipt"
+            >
+              <DocumentIcon />
+            </button>
 
             <button
               type="button"
@@ -333,8 +351,9 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
         <input
           type="file"
           accept="application/pdf,image/*"
+          multiple
           ref={documentFileInputRef}
-          onChange={handleDocumentFileSelected}
+          onChange={handleDocumentFilesSelected}
           style={{ display: 'none' }}
         />
       </form>
