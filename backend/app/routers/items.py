@@ -12,7 +12,7 @@ from app.auth import get_current_user_id
 from app.config import get_settings
 from app.database import get_db_for_request
 from app.models.schemas import ChatRequest, ChatResponse, ItemSummary, ItemWithConcepts, SaveItemRequest
-from app.services.ingestion import DailyLimitExceeded, save_audio_item, save_item
+from app.services.ingestion import DailyLimitExceeded, save_audio_item, save_document_item, save_item
 from app.services.items import delete_item, list_items
 from app.services.retrieval import answer_question
 
@@ -22,6 +22,15 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 _MAX_AUDIO_BYTES = 100 * 1024 * 1024  # 100 MB -- generous for a multi-hour lecture
+_MAX_DOCUMENT_BYTES = 20 * 1024 * 1024  # 20 MB -- generous for a scanned paper or a photo
+_ALLOWED_DOCUMENT_MIME_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/heic",
+    "image/heif",
+}
 
 
 @router.post("/items", response_model=ItemSummary, status_code=status.HTTP_201_CREATED)
@@ -81,6 +90,55 @@ async def upload_audio_item(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not transcribe that recording. Please try again in a few seconds.",
+        ) from exc
+
+    return ItemSummary(
+        id=item.id,
+        source_type=item.source_type,
+        source_url=item.source_url,
+        title=item.title,
+        created_at=item.created_at,
+    )
+
+
+@router.post("/items/document", response_model=ItemSummary, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
+async def upload_document_item(
+    request: Request,
+    file: UploadFile = File(...),
+    timezone: str | None = Form(default=None),
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> ItemSummary:
+    """Accepts a PDF or a photo -- a research paper, a receipt, a form,
+    whatever it turns out to be -- extracts its text and any structured
+    data it contains, and saves it through the normal pipeline.
+    """
+    mime_type = file.content_type or "application/octet-stream"
+    if mime_type not in _ALLOWED_DOCUMENT_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported file type. Please upload a PDF or an image (JPEG, PNG, WEBP, HEIC).",
+        )
+
+    file_bytes = await file.read()
+    if len(file_bytes) > _MAX_DOCUMENT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File is too large (max {_MAX_DOCUMENT_BYTES // (1024 * 1024)} MB).",
+        )
+
+    try:
+        item = await save_document_item(
+            session, user_id, file_bytes, mime_type, timezone, settings.max_items_per_user_per_day
+        )
+    except DailyLimitExceeded as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Document extraction failed for user %s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not read that document. Please try again in a few seconds.",
         ) from exc
 
     return ItemSummary(

@@ -29,6 +29,10 @@ class ItemWithConcepts(ItemSummary):
     preview: str = Field(
         default="", description="First ~100 characters of the saved text, for display when there's no title."
     )
+    extracted_data: dict | None = Field(
+        default=None,
+        description="Structured fields pulled from a document (key_fields, line_items, figures), if any.",
+    )
 
 
 class ChatRequest(BaseModel):

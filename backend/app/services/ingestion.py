@@ -11,7 +11,7 @@ from app.models.orm import Chunk, Item
 from app.models.schemas import SaveItemRequest
 from app.services.chunking import chunk_text
 from app.services.dates import resolve_today
-from app.services.extraction import enrich_note, extract_concepts, store_concepts_for_item
+from app.services.extraction import enrich_note, extract_concepts, extract_document_content, store_concepts_for_item
 from app.services.gemini_client import embed_texts, generate_title, transcribe_audio
 
 logger = logging.getLogger(__name__)
@@ -50,10 +50,12 @@ async def _finish_saving_item(
     text: str,
     timezone: str | None,
     daily_limit: int,
+    extracted_data: dict | None = None,
 ) -> Item:
     """The shared tail end of saving any item, regardless of where its text
-    came from (typed, scraped, or transcribed): enforce the daily cap,
-    store the item, resolve dates, chunk, embed, and extract concepts.
+    came from (typed, scraped, transcribed, or extracted from a document):
+    enforce the daily cap, store the item, resolve dates, chunk, embed, and
+    extract concepts.
     """
     today_count = await session.scalar(
         select(func.count()).select_from(Item).where(
@@ -70,6 +72,7 @@ async def _finish_saving_item(
         source_url=source_url,
         title=title,
         raw_text=text,
+        extracted_data=extracted_data,
     )
     session.add(item)
     await session.flush()  # populates item.id without committing yet
@@ -146,3 +149,36 @@ async def save_audio_item(
     transcript = transcribe_audio(audio_bytes, mime_type)
     title = generate_title(transcript)
     return await _finish_saving_item(session, user_id, "audio", None, title, transcript, timezone, daily_limit)
+
+
+async def save_document_item(
+    session: AsyncSession,
+    user_id: str,
+    file_bytes: bytes,
+    mime_type: str,
+    timezone: str | None,
+    daily_limit: int,
+) -> Item:
+    """Extract a document or photo -- a research paper, a receipt, a form,
+    whatever it turns out to be -- and save it the same way as any other
+    item, with the structured fields it found alongside the plain text.
+    """
+    extraction = extract_document_content(file_bytes, mime_type)
+    title = extraction.key_fields.get("title") or generate_title(extraction.full_text)
+    extracted_data = {
+        "document_type": extraction.document_type,
+        "key_fields": extraction.key_fields,
+        "line_items": [item.model_dump() for item in extraction.line_items],
+        "figures": [figure.model_dump() for figure in extraction.figures],
+    }
+    return await _finish_saving_item(
+        session,
+        user_id,
+        "document",
+        None,
+        title,
+        extraction.full_text,
+        timezone,
+        daily_limit,
+        extracted_data=extracted_data,
+    )

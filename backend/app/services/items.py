@@ -60,6 +60,7 @@ async def list_items(session: AsyncSession, user_id: str, limit: int = _DEFAULT_
             created_at=item.created_at,
             concepts=concepts_by_item.get(item.id, []),
             preview=_make_preview(item.raw_text),
+            extracted_data=item.extracted_data,
         )
         for item in items
     ]
