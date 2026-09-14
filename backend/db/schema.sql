@@ -8,12 +8,29 @@ create extension if not exists vector;
 create table if not exists items (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references auth.users (id) on delete cascade,
-    source_type text not null check (source_type in ('url', 'text', 'audio', 'pdf')),
+    source_type text not null check (source_type in ('url', 'text', 'audio', 'document')),
     source_url text,
     title text,
     raw_text text not null,
+    -- Structured fields pulled out of a document (receipt line items and
+    -- totals, a paper's figures/captions, an invoice's key fields, etc).
+    -- Shape varies by document_type, so this is deliberately schemaless --
+    -- see DocumentExtraction in app/services/extraction.py for what a
+    -- given extraction run can populate here.
+    extracted_data jsonb,
     created_at timestamptz not null default now()
 );
+
+-- Adds the column for databases created before this field existed; a
+-- no-op (IF NOT EXISTS) on a fresh database that already has it above.
+alter table items add column if not exists extracted_data jsonb;
+
+-- Widen the allowed source types for databases created before 'document'
+-- replaced the never-used 'pdf' value (auto-generated constraint name,
+-- per Postgres's <table>_<column>_check convention).
+alter table items drop constraint if exists items_source_type_check;
+alter table items add constraint items_source_type_check
+    check (source_type in ('url', 'text', 'audio', 'document'));
 
 create index if not exists items_user_id_idx on items (user_id);
 
