@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from './hooks/useAuth'
 import { supabase } from './lib/supabase'
 import SignIn from './components/SignIn'
 import ItemsPanel from './components/ItemsPanel'
 import ChatPanel from './components/ChatPanel'
 import GraphPanel from './components/GraphPanel'
+import CommandPalette from './components/CommandPalette'
 
 const MIN_PANEL_WIDTH = 220
 const MAX_LEFT_WIDTH = 480
@@ -23,6 +24,8 @@ export default function App() {
   const [leftWidth, setLeftWidth] = useState(300)
   const [rightWidth, setRightWidth] = useState(380)
   const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_QUERY).matches)
+  const itemsPanelRef = useRef(null)
+  const chatPanelRef = useRef(null)
 
   // Below the breakpoint, panels stack and scroll instead of sitting
   // side-by-side -- dragging to resize doesn't make sense there, so we
@@ -81,15 +84,17 @@ export default function App() {
   return (
     <div className="app-shell">
       <ItemsPanel
+        ref={itemsPanelRef}
         userEmail={session.user.email}
         onSignOut={() => supabase.auth.signOut()}
         onItemsChanged={() => setRefreshKey((key) => key + 1)}
         width={isMobile ? undefined : leftWidth}
       />
       {!isMobile && <div className="resize-handle" onMouseDown={startDrag('left')} />}
-      <ChatPanel />
+      <ChatPanel ref={chatPanelRef} />
       {!isMobile && <div className="resize-handle" onMouseDown={startDrag('right')} />}
       <GraphPanel refreshKey={refreshKey} width={isMobile ? undefined : rightWidth} />
+      <CommandPalette itemsPanelRef={itemsPanelRef} chatPanelRef={chatPanelRef} />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { askQuestion, transcribeAudio } from '../lib/api'
 import { useAudioRecorder } from '../hooks/useAudioRecorder'
@@ -20,12 +20,17 @@ function MicIcon() {
   )
 }
 
-export default function ChatPanel() {
+const ChatPanel = forwardRef(function ChatPanel(props, ref) {
   const [messages, setMessages] = useState([])
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [error, setError] = useState(null)
+  const questionInputRef = useRef(null)
+
+  useImperativeHandle(ref, () => ({
+    focusQuestionInput: () => questionInputRef.current?.focus(),
+  }))
 
   async function ask(trimmed) {
     setMessages((prev) => [...prev, { role: 'user', text: trimmed }])
@@ -112,6 +117,7 @@ export default function ChatPanel() {
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               disabled={busy}
+              ref={questionInputRef}
             />
             <button
               type="button"
@@ -128,4 +134,6 @@ export default function ChatPanel() {
       </form>
     </div>
   )
-}
+})
+
+export default ChatPanel

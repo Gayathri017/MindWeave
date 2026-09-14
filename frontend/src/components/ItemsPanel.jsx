@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { deleteItem, listItems, saveItem, uploadAudio, uploadDocument } from '../lib/api'
 import { useAudioRecorder } from '../hooks/useAudioRecorder'
 
@@ -107,7 +107,7 @@ function ExtractedDataCard({ data }) {
   )
 }
 
-export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width }) {
+const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width }, ref) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -118,6 +118,7 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
   const audioFileInputRef = useRef(null)
   const documentFileInputRef = useRef(null)
   const menuRef = useRef(null)
+  const noteInputRef = useRef(null)
 
   async function loadItems() {
     try {
@@ -202,6 +203,19 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
     onError: (message) => setError(message),
   })
 
+  useImperativeHandle(ref, () => ({
+    focusNoteInput: () => noteInputRef.current?.focus(),
+    startRecording: () => recorder.start(),
+    openDocumentPicker: () => documentFileInputRef.current?.click(),
+    scrollToItem: (itemId) => {
+      const el = document.getElementById(`item-${itemId}`)
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('item-card-flash')
+      setTimeout(() => el.classList.remove('item-card-flash'), 1200)
+    },
+  }))
+
   function handleAudioFileSelected(event) {
     const file = event.target.files?.[0]
     event.target.value = ''
@@ -234,7 +248,12 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
   return (
     <div className="left-panel" style={{ width }}>
       <div className="panel-header">
-        <span className="header wordmark">mindweave</span>
+        <span className="header-title">
+          <span className="header wordmark">mindweave</span>
+          <span className="palette-hint" title="Press Ctrl+K or Cmd+K to search and jump to actions">
+            <kbd>⌘K</kbd>
+          </span>
+        </span>
         <button type="button" className="signout-link" onClick={onSignOut} title={userEmail}>
           Sign out
         </button>
@@ -246,7 +265,7 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
           <p className="panel-hint">Nothing saved yet &mdash; add your first thought below.</p>
         )}
         {items.map((item) => (
-          <div className="item-card" key={item.id}>
+          <div className="item-card" id={`item-${item.id}`} key={item.id}>
             <div className="item-card-header">
               <p className="title">{item.title || item.preview || item.source_url}</p>
               <button
@@ -315,6 +334,7 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
               value={content}
               onChange={(event) => setContent(event.target.value)}
               disabled={saving}
+              ref={noteInputRef}
             />
 
             <button
@@ -359,4 +379,6 @@ export default function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width
       </form>
     </div>
   )
-}
+})
+
+export default ItemsPanel
