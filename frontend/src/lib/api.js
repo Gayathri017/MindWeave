@@ -101,6 +101,12 @@ export function uploadAudio(audioBlob, filename = 'recording.webm') {
   return authorizedUpload('/api/items/audio', formData)
 }
 
+export function transcribeAudio(audioBlob, filename = 'question.webm') {
+  const formData = new FormData()
+  formData.append('file', audioBlob, filename)
+  return authorizedUpload('/api/transcribe', formData)
+}
+
 export function uploadDocument(file) {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const formData = new FormData()

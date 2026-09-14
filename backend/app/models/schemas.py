@@ -39,6 +39,10 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2_000)
 
 
+class TranscriptionResponse(BaseModel):
+    text: str
+
+
 class ChatResponse(BaseModel):
     answer: str
     sources: list[str] = Field(default_factory=list, description="Item ids the answer drew from.")

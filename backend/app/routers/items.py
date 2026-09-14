@@ -11,7 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_user_id
 from app.config import get_settings
 from app.database import get_db_for_request
-from app.models.schemas import ChatRequest, ChatResponse, ItemSummary, ItemWithConcepts, SaveItemRequest
+from app.models.schemas import (
+    ChatRequest,
+    ChatResponse,
+    ItemSummary,
+    ItemWithConcepts,
+    SaveItemRequest,
+    TranscriptionResponse,
+)
+from app.services.gemini_client import transcribe_audio
 from app.services.ingestion import DailyLimitExceeded, save_audio_item, save_document_item, save_item
 from app.services.items import delete_item, list_items
 from app.services.retrieval import answer_question
@@ -148,6 +156,37 @@ async def upload_document_item(
         title=item.title,
         created_at=item.created_at,
     )
+
+
+@router.post("/transcribe", response_model=TranscriptionResponse)
+@limiter.limit("20/minute")
+async def transcribe(
+    request: Request,
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id),
+) -> TranscriptionResponse:
+    """Transcribe a short recording without saving it as an item -- used
+    for asking a chat question by voice instead of typing it.
+    """
+    audio_bytes = await file.read()
+    if len(audio_bytes) > _MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Audio file is too large (max {_MAX_AUDIO_BYTES // (1024 * 1024)} MB).",
+        )
+
+    mime_type = file.content_type or "audio/webm"
+
+    try:
+        text = transcribe_audio(audio_bytes, mime_type)
+    except Exception as exc:
+        logger.exception("Voice question transcription failed for user %s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not transcribe that. Please try again in a few seconds.",
+        ) from exc
+
+    return TranscriptionResponse(text=text)
 
 
 @router.get("/items", response_model=list[ItemWithConcepts])
