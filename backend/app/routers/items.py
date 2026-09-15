@@ -218,7 +218,7 @@ async def chat(
     session: AsyncSession = Depends(get_db_for_request),
 ) -> ChatResponse:
     try:
-        answer, source_ids, image_bytes, image_mime_type = await answer_question(session, user_id, body.question)
+        answer, sources, image_bytes, image_mime_type = await answer_question(session, user_id, body.question)
     except Exception as exc:
         # Catching broadly and deliberately: the Gemini SDK's specific
         # exception classes live in a private module we shouldn't depend
@@ -235,4 +235,4 @@ async def chat(
     if image_bytes and image_mime_type:
         image = f"data:{image_mime_type};base64,{base64.b64encode(image_bytes).decode()}"
 
-    return ChatResponse(answer=answer, sources=source_ids, image=image)
+    return ChatResponse(answer=answer, sources=sources, image=image)

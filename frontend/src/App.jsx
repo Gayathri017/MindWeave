@@ -91,7 +91,7 @@ export default function App() {
         width={isMobile ? undefined : leftWidth}
       />
       {!isMobile && <div className="resize-handle" onMouseDown={startDrag('left')} />}
-      <ChatPanel ref={chatPanelRef} />
+      <ChatPanel ref={chatPanelRef} itemsPanelRef={itemsPanelRef} />
       {!isMobile && <div className="resize-handle" onMouseDown={startDrag('right')} />}
       <GraphPanel refreshKey={refreshKey} width={isMobile ? undefined : rightWidth} />
       <CommandPalette itemsPanelRef={itemsPanelRef} chatPanelRef={chatPanelRef} />

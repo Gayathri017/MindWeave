@@ -20,7 +20,7 @@ function MicIcon() {
   )
 }
 
-const ChatPanel = forwardRef(function ChatPanel(props, ref) {
+const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef }, ref) {
   const [messages, setMessages] = useState([])
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
@@ -40,7 +40,10 @@ const ChatPanel = forwardRef(function ChatPanel(props, ref) {
 
     try {
       const response = await askQuestion(trimmed)
-      setMessages((prev) => [...prev, { role: 'answer', text: response.answer, image: response.image }])
+      setMessages((prev) => [
+        ...prev,
+        { role: 'answer', text: response.answer, image: response.image, sources: response.sources },
+      ])
     } catch (err) {
       setError(err.message)
     } finally {
@@ -92,6 +95,21 @@ const ChatPanel = forwardRef(function ChatPanel(props, ref) {
               message.text
             )}
             {message.image && <img className="chat-generated-image" src={message.image} alt="" />}
+            {message.sources && message.sources.length > 0 && (
+              <div className="citation-row">
+                {message.sources.map((source) => (
+                  <button
+                    type="button"
+                    key={source.id}
+                    className="citation-chip"
+                    onClick={() => itemsPanelRef?.current?.scrollToItem(source.id)}
+                    title={source.title}
+                  >
+                    {source.title}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         {transcribing && <div className="bubble answer">Listening&hellip;</div>}

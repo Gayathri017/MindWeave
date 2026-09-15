@@ -671,6 +671,33 @@ button:disabled {
   margin-top: 8px;
 }
 
+.citation-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(43, 36, 23, 0.08);
+}
+
+.citation-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--cream);
+  border: 1px solid rgba(43, 36, 23, 0.12);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text-muted-cream);
+}
+
+.citation-chip:hover {
+  color: var(--text-on-cream);
+  border-color: var(--orange);
+}
+
 .chat-form {
   margin-top: 16px;
 }

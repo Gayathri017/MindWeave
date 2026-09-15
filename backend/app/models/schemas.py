@@ -43,9 +43,14 @@ class TranscriptionResponse(BaseModel):
     text: str
 
 
+class ChatSource(BaseModel):
+    id: uuid.UUID
+    title: str
+
+
 class ChatResponse(BaseModel):
     answer: str
-    sources: list[str] = Field(default_factory=list, description="Item ids the answer drew from.")
+    sources: list[ChatSource] = Field(default_factory=list, description="The items the answer drew from.")
     image: str | None = Field(
         default=None, description="A data URL (data:<mime>;base64,...) for a generated image, if one was made."
     )

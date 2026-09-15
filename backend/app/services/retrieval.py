@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.orm import Chunk
+from app.models.orm import Chunk, Item
+from app.models.schemas import ChatSource
 from app.services.gemini_client import embed_text, generate_image, generate_structured
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ _SYSTEM_INSTRUCTION = (
 )
 
 _TOP_K = 6
+_FALLBACK_TITLE_LENGTH = 60
 
 
 class _ChatAnswer(BaseModel):
@@ -36,10 +38,23 @@ class _ChatAnswer(BaseModel):
     )
 
 
+def _display_title(item: Item) -> str:
+    """A title if the item has one, otherwise the start of its text --
+    mirrors the preview shown in the saved-items list, so a citation reads
+    the same as the item does everywhere else in the app.
+    """
+    if item.title:
+        return item.title
+    stripped = item.raw_text.strip()
+    if len(stripped) <= _FALLBACK_TITLE_LENGTH:
+        return stripped
+    return stripped[:_FALLBACK_TITLE_LENGTH].rsplit(" ", 1)[0] + "…"
+
+
 async def answer_question(
     session: AsyncSession, user_id: str, question: str
-) -> tuple[str, list[str], bytes | None, str | None]:
-    """Return (answer, source_item_ids, image_bytes, image_mime_type) for a
+) -> tuple[str, list[ChatSource], bytes | None, str | None]:
+    """Return (answer, sources, image_bytes, image_mime_type) for a
     question over the user's saved knowledge. The image fields are None
     unless the model decided a generated image would help this answer.
     """
@@ -66,7 +81,12 @@ async def answer_question(
     prompt = f"Saved excerpts:\n\n{context}\n\nQuestion: {question}"
 
     result = generate_structured(prompt, _ChatAnswer, system_instruction=_SYSTEM_INSTRUCTION)
-    source_ids = list({str(chunk.item_id) for chunk in matches})
+
+    source_item_ids = list({chunk.item_id for chunk in matches})
+    source_items = (
+        (await session.execute(select(Item).where(Item.id.in_(source_item_ids)))).scalars().all()
+    )
+    sources = [ChatSource(id=item.id, title=_display_title(item)) for item in source_items]
 
     image_bytes, image_mime_type = None, None
     if result.image_prompt:
@@ -75,4 +95,4 @@ async def answer_question(
         except Exception:
             logger.exception("Image generation failed for user %s; returning text-only answer.", user_id)
 
-    return result.answer, source_ids, image_bytes, image_mime_type
+    return result.answer, sources, image_bytes, image_mime_type
