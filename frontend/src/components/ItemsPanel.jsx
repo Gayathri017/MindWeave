@@ -54,6 +54,15 @@ function DocumentIcon() {
   )
 }
 
+function localDateKey(isoString) {
+  const date = new Date(isoString)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function formatShortDate(isoString) {
+  return new Date(isoString).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 function formatFieldLabel(key) {
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
@@ -107,6 +116,176 @@ function ExtractedDataCard({ data }) {
   )
 }
 
+function ItemCard({ item, onDelete }) {
+  return (
+    <div className="item-card" id={`item-${item.id}`}>
+      <div className="item-card-header">
+        <p className="title">{item.title || item.preview || item.source_url}</p>
+        <button
+          type="button"
+          className="delete-button"
+          onClick={() => onDelete(item.id)}
+          aria-label="Delete this item"
+          title="Delete"
+        >
+          &times;
+        </button>
+      </div>
+      <p className="time">{timeAgo(item.created_at)}</p>
+      {item.extracted_data && <ExtractedDataCard data={item.extracted_data} />}
+      {item.concepts.map((concept, index) => (
+        <span className={`tag${index === 0 ? ' orange' : ''}`} key={concept}>
+          {concept}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+const VIEW_MODES = ['list', 'table', 'calendar']
+
+function TableView({ items, onDelete }) {
+  const [sortKey, setSortKey] = useState('date')
+  const [sortDir, setSortDir] = useState('desc')
+
+  function toggleSort(key) {
+    if (sortKey === key) {
+      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  const sorted = [...items].sort((a, b) => {
+    let result
+    if (sortKey === 'title') {
+      result = (a.title || a.preview || '').localeCompare(b.title || b.preview || '')
+    } else if (sortKey === 'type') {
+      result = a.source_type.localeCompare(b.source_type)
+    } else {
+      result = new Date(a.created_at) - new Date(b.created_at)
+    }
+    return sortDir === 'asc' ? result : -result
+  })
+
+  function sortIndicator(key) {
+    if (sortKey !== key) return ''
+    return sortDir === 'asc' ? ' ↑' : ' ↓'
+  }
+
+  return (
+    <table className="items-table">
+      <thead>
+        <tr>
+          <th onClick={() => toggleSort('title')}>Title{sortIndicator('title')}</th>
+          <th onClick={() => toggleSort('type')}>Type{sortIndicator('type')}</th>
+          <th onClick={() => toggleSort('date')}>Date{sortIndicator('date')}</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((item) => (
+          <tr key={item.id} id={`item-${item.id}`}>
+            <td>{item.title || item.preview || item.source_url}</td>
+            <td>
+              <span className="tag">{item.source_type}</span>
+            </td>
+            <td>{formatShortDate(item.created_at)}</td>
+            <td>
+              <button
+                type="button"
+                className="delete-button"
+                onClick={() => onDelete(item.id)}
+                aria-label="Delete this item"
+                title="Delete"
+              >
+                &times;
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function CalendarView({ items, onDelete }) {
+  const [monthOffset, setMonthOffset] = useState(0)
+  const [selectedDay, setSelectedDay] = useState(null)
+
+  const itemsByDay = {}
+  for (const item of items) {
+    const key = localDateKey(item.created_at)
+    ;(itemsByDay[key] ||= []).push(item)
+  }
+
+  const today = new Date()
+  const viewedMonth = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1)
+  const year = viewedMonth.getFullYear()
+  const month = viewedMonth.getMonth()
+  const firstWeekday = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+
+  const cells = []
+  for (let i = 0; i < firstWeekday; i++) cells.push(null)
+  for (let day = 1; day <= daysInMonth; day++) cells.push(day)
+
+  function dayKey(day) {
+    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  }
+
+  const selectedItems = selectedDay ? itemsByDay[selectedDay] || [] : []
+
+  return (
+    <div className="calendar-view">
+      <div className="calendar-nav">
+        <button type="button" className="calendar-nav-button" onClick={() => setMonthOffset((o) => o - 1)}>
+          &lsaquo;
+        </button>
+        <span>{viewedMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+        <button type="button" className="calendar-nav-button" onClick={() => setMonthOffset((o) => o + 1)}>
+          &rsaquo;
+        </button>
+      </div>
+
+      <div className="calendar-grid">
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((label, index) => (
+          <div className="calendar-weekday" key={index}>
+            {label}
+          </div>
+        ))}
+        {cells.map((day, index) => {
+          if (day === null) return <div className="calendar-cell empty" key={index} />
+          const key = dayKey(day)
+          const hasItems = Boolean(itemsByDay[key]?.length)
+          return (
+            <button
+              type="button"
+              key={index}
+              className={`calendar-cell${hasItems ? ' has-items' : ''}${selectedDay === key ? ' selected' : ''}`}
+              onClick={() => setSelectedDay(selectedDay === key ? null : key)}
+            >
+              {day}
+              {hasItems && <span className="calendar-dot" />}
+            </button>
+          )
+        })}
+      </div>
+
+      {selectedDay && (
+        <div className="calendar-day-items">
+          {selectedItems.length === 0 ? (
+            <p className="panel-hint">Nothing saved on this day.</p>
+          ) : (
+            selectedItems.map((item) => <ItemCard item={item} onDelete={onDelete} key={item.id} />)
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width }, ref) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -114,6 +293,7 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
   const [content, setContent] = useState('')
   const [saving, setSaving] = useState(false)
   const [showUploadMenu, setShowUploadMenu] = useState(false)
+  const [viewMode, setViewMode] = useState('list')
 
   const audioFileInputRef = useRef(null)
   const documentFileInputRef = useRef(null)
@@ -208,11 +388,16 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
     startRecording: () => recorder.start(),
     openDocumentPicker: () => documentFileInputRef.current?.click(),
     scrollToItem: (itemId) => {
-      const el = document.getElementById(`item-${itemId}`)
-      if (!el) return
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      el.classList.add('item-card-flash')
-      setTimeout(() => el.classList.remove('item-card-flash'), 1200)
+      setViewMode('list')
+      // Wait a tick so the list view (with this item's card) is in the DOM
+      // before we look it up -- switching viewMode above is async.
+      setTimeout(() => {
+        const el = document.getElementById(`item-${itemId}`)
+        if (!el) return
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.classList.add('item-card-flash')
+        setTimeout(() => el.classList.remove('item-card-flash'), 1200)
+      }, 0)
     },
   }))
 
@@ -259,34 +444,35 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
         </button>
       </div>
 
+      {!loading && items.length > 0 && (
+        <div className="view-tabs">
+          {VIEW_MODES.map((mode) => (
+            <button
+              type="button"
+              key={mode}
+              className={`view-tab${viewMode === mode ? ' active' : ''}`}
+              onClick={() => setViewMode(mode)}
+            >
+              {mode.charAt(0).toUpperCase() + mode.slice(1)}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="item-list">
         {loading && <p className="panel-hint">Loading&hellip;</p>}
         {!loading && items.length === 0 && (
           <p className="panel-hint">Nothing saved yet &mdash; add your first thought below.</p>
         )}
-        {items.map((item) => (
-          <div className="item-card" id={`item-${item.id}`} key={item.id}>
-            <div className="item-card-header">
-              <p className="title">{item.title || item.preview || item.source_url}</p>
-              <button
-                type="button"
-                className="delete-button"
-                onClick={() => handleDelete(item.id)}
-                aria-label="Delete this item"
-                title="Delete"
-              >
-                &times;
-              </button>
-            </div>
-            <p className="time">{timeAgo(item.created_at)}</p>
-            {item.extracted_data && <ExtractedDataCard data={item.extracted_data} />}
-            {item.concepts.map((concept, index) => (
-              <span className={`tag${index === 0 ? ' orange' : ''}`} key={concept}>
-                {concept}
-              </span>
-            ))}
-          </div>
-        ))}
+        {!loading && items.length > 0 && viewMode === 'list' && (
+          items.map((item) => <ItemCard item={item} onDelete={handleDelete} key={item.id} />)
+        )}
+        {!loading && items.length > 0 && viewMode === 'table' && (
+          <TableView items={items} onDelete={handleDelete} />
+        )}
+        {!loading && items.length > 0 && viewMode === 'calendar' && (
+          <CalendarView items={items} onDelete={handleDelete} />
+        )}
       </div>
 
       <form className="save-form" onSubmit={handleSubmit}>
