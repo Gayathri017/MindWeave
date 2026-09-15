@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { deleteItem, listItems, saveItem, uploadAudio, uploadDocument } from '../lib/api'
 import { useAudioRecorder } from '../hooks/useAudioRecorder'
 
@@ -61,6 +61,48 @@ function localDateKey(isoString) {
 
 function formatShortDate(isoString) {
   return new Date(isoString).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const RESURFACE_MIN_AGE_MS = 48 * 60 * 60 * 1000
+const RESURFACE_DISMISS_KEY_PREFIX = 'mindweave:resurface-dismissed:'
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+// A small deterministic hash of today's date, so the resurfaced item stays
+// the same all day (and across tabs/reloads) but changes tomorrow -- no
+// server-side state needed for something this low-stakes.
+function dayHash(dateKey) {
+  let hash = 0
+  for (let i = 0; i < dateKey.length; i++) {
+    hash = (hash * 31 + dateKey.charCodeAt(i)) >>> 0
+  }
+  return hash
+}
+
+function pickResurfacedItem(items) {
+  const eligible = items.filter((item) => Date.now() - new Date(item.created_at).getTime() > RESURFACE_MIN_AGE_MS)
+  if (eligible.length === 0) return null
+  const index = dayHash(todayKey()) % eligible.length
+  return eligible[index]
+}
+
+function isResurfaceDismissedToday(itemId) {
+  try {
+    return localStorage.getItem(RESURFACE_DISMISS_KEY_PREFIX + todayKey()) === itemId
+  } catch {
+    return false
+  }
+}
+
+function dismissResurfaceToday(itemId) {
+  try {
+    localStorage.setItem(RESURFACE_DISMISS_KEY_PREFIX + todayKey(), itemId)
+  } catch {
+    // Best-effort -- private browsing or a full storage quota just means
+    // the card reappears next reload, which is harmless.
+  }
 }
 
 function formatFieldLabel(key) {
@@ -294,6 +336,7 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
   const [saving, setSaving] = useState(false)
   const [showUploadMenu, setShowUploadMenu] = useState(false)
   const [viewMode, setViewMode] = useState('list')
+  const [resurfaceDismissed, setResurfaceDismissed] = useState(false)
 
   const audioFileInputRef = useRef(null)
   const documentFileInputRef = useRef(null)
@@ -328,6 +371,37 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
     document.addEventListener('mousedown', handleOutsideClick)
     return () => document.removeEventListener('mousedown', handleOutsideClick)
   }, [])
+
+  const resurfacedItem = useMemo(() => pickResurfacedItem(items), [items])
+
+  useEffect(() => {
+    if (resurfacedItem) {
+      setResurfaceDismissed(isResurfaceDismissedToday(resurfacedItem.id))
+    }
+  }, [resurfacedItem])
+
+  function handleDismissResurface() {
+    if (!resurfacedItem) return
+    dismissResurfaceToday(resurfacedItem.id)
+    setResurfaceDismissed(true)
+  }
+
+  function scrollToItemInList(itemId) {
+    setViewMode('list')
+    // Wait a tick so the list view (with this item's card) is in the DOM
+    // before we look it up -- switching viewMode above is async.
+    setTimeout(() => {
+      const el = document.getElementById(`item-${itemId}`)
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('item-card-flash')
+      setTimeout(() => el.classList.remove('item-card-flash'), 1200)
+    }, 0)
+  }
+
+  function handleViewResurfaced() {
+    if (resurfacedItem) scrollToItemInList(resurfacedItem.id)
+  }
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -387,18 +461,7 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
     focusNoteInput: () => noteInputRef.current?.focus(),
     startRecording: () => recorder.start(),
     openDocumentPicker: () => documentFileInputRef.current?.click(),
-    scrollToItem: (itemId) => {
-      setViewMode('list')
-      // Wait a tick so the list view (with this item's card) is in the DOM
-      // before we look it up -- switching viewMode above is async.
-      setTimeout(() => {
-        const el = document.getElementById(`item-${itemId}`)
-        if (!el) return
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        el.classList.add('item-card-flash')
-        setTimeout(() => el.classList.remove('item-card-flash'), 1200)
-      }, 0)
-    },
+    scrollToItem: scrollToItemInList,
   }))
 
   function handleAudioFileSelected(event) {
@@ -443,6 +506,27 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
           Sign out
         </button>
       </div>
+
+      {resurfacedItem && !resurfaceDismissed && (
+        <div className="resurface-card">
+          <div className="resurface-card-header">
+            <span className="resurface-card-label">From your notes</span>
+            <button
+              type="button"
+              className="delete-button"
+              onClick={handleDismissResurface}
+              aria-label="Dismiss for today"
+              title="Dismiss for today"
+            >
+              &times;
+            </button>
+          </div>
+          <button type="button" className="resurface-card-title" onClick={handleViewResurfaced}>
+            {resurfacedItem.title || resurfacedItem.preview || resurfacedItem.source_url}
+          </button>
+          <p className="time">{timeAgo(resurfacedItem.created_at)}</p>
+        </div>
+      )}
 
       {!loading && items.length > 0 && (
         <div className="view-tabs">

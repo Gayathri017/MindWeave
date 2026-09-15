@@ -292,6 +292,43 @@ button:disabled {
   padding-left: 16px;
 }
 
+/* --- Daily resurfacing --- */
+
+.resurface-card {
+  background: rgba(217, 122, 52, 0.12);
+  border: 1px solid rgba(217, 122, 52, 0.3);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.resurface-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.resurface-card-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--orange);
+  font-weight: 600;
+}
+
+.resurface-card-title {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-on-dark);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 0 0;
+  line-height: 1.4;
+}
+
 /* --- Item views: list / table / calendar --- */
 
 .view-tabs {
