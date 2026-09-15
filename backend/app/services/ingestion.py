@@ -1,6 +1,7 @@
 """Orchestrates turning a saved URL, note, or audio recording into searchable, embedded chunks."""
 
 import logging
+import re
 
 import httpx
 from bs4 import BeautifulSoup
@@ -11,10 +12,18 @@ from app.models.orm import Chunk, Item
 from app.models.schemas import SaveItemRequest
 from app.services.chunking import chunk_text
 from app.services.dates import resolve_today
-from app.services.extraction import enrich_note, extract_concepts, extract_document_content, store_concepts_for_item
+from app.services.extraction import (
+    enrich_note,
+    extract_concepts,
+    extract_document_content,
+    extract_youtube_content,
+    store_concepts_for_item,
+)
 from app.services.gemini_client import embed_texts, generate_title, transcribe_audio
 
 logger = logging.getLogger(__name__)
+
+_YOUTUBE_URL_PATTERN = re.compile(r"^https?://(www\.|m\.)?(youtube\.com/(watch|shorts/)|youtu\.be/)", re.IGNORECASE)
 
 
 class DailyLimitExceeded(Exception):
@@ -116,6 +125,26 @@ async def _finish_saving_item(
     return item
 
 
+async def _extract_youtube_or_scrape(url: str) -> tuple[str, str | None, dict | None]:
+    """Return (text, title, extracted_data) for a YouTube URL.
+
+    Tries to have Gemini actually watch the video first -- far richer than
+    a scraped transcript, and YouTube's own pages are JS-rendered anyway
+    so the plain scrape below returns almost nothing useful for them. On
+    any failure (quota, an age-restricted/unavailable video, etc.) falls
+    back to the same scrape every other URL gets, rather than failing the
+    save outright.
+    """
+    try:
+        extraction = extract_youtube_content(url)
+        extracted_data = {"video_url": url, "key_points": extraction.key_points}
+        return extraction.summary, extraction.title, extracted_data
+    except Exception:
+        logger.exception("YouTube video understanding failed for %s; falling back to page scrape.", url)
+        text, title = await _extract_text_from_url(url)
+        return text, title, None
+
+
 async def save_item(
     session: AsyncSession,
     user_id: str,
@@ -123,14 +152,26 @@ async def save_item(
     daily_limit: int,
 ) -> Item:
     """Save a typed note or a URL."""
+    extracted_data = None
     if request.source_type == "url":
-        text, title = await _extract_text_from_url(request.content)
+        if _YOUTUBE_URL_PATTERN.match(request.content):
+            text, title, extracted_data = await _extract_youtube_or_scrape(request.content)
+        else:
+            text, title = await _extract_text_from_url(request.content)
         source_url = request.content
     else:
         text, title, source_url = request.content, None, None
 
     return await _finish_saving_item(
-        session, user_id, request.source_type, source_url, title, text, request.timezone, daily_limit
+        session,
+        user_id,
+        request.source_type,
+        source_url,
+        title,
+        text,
+        request.timezone,
+        daily_limit,
+        extracted_data=extracted_data,
     )
 
 

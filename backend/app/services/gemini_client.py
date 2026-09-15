@@ -92,6 +92,30 @@ def generate_structured_from_file(
     return schema.model_validate_json(interaction.output_text)
 
 
+def generate_structured_from_video_url(
+    video_url: str,
+    schema: type[_SchemaT],
+    system_instruction: str | None = None,
+) -> _SchemaT:
+    """Like `generate_structured_from_file`, but for a video the model can
+    fetch itself by URL (e.g. a YouTube link) -- no upload step, since
+    there are no local bytes to send. Gemini watches (video + audio) and
+    understands the actual content, not just a scraped transcript.
+    """
+    interaction = _client.interactions.create(
+        model=settings.gemini_chat_model,
+        input=[{"type": "video", "uri": video_url}],
+        system_instruction=system_instruction,
+        response_format={
+            "type": "text",
+            "mime_type": "application/json",
+            "schema": schema.model_json_schema(),
+        },
+        store=False,
+    )
+    return schema.model_validate_json(interaction.output_text)
+
+
 def generate_text(prompt: str, system_instruction: str | None = None) -> str:
     """Ask Gemini for a plain-text response (used for the RAG chat answer)."""
     interaction = _client.interactions.create(

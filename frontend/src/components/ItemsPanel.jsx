@@ -113,13 +113,28 @@ function ExtractedDataCard({ data }) {
   const keyFields = Object.entries(data.key_fields || {})
   const lineItems = data.line_items || []
   const figures = data.figures || []
+  const keyPoints = data.key_points || []
 
-  if (keyFields.length === 0 && lineItems.length === 0 && figures.length === 0) {
+  if (keyFields.length === 0 && lineItems.length === 0 && figures.length === 0 && keyPoints.length === 0) {
     return null
   }
 
   return (
     <div className="extracted-data">
+      {data.video_url && (
+        <a className="extracted-video-link" href={data.video_url} target="_blank" rel="noreferrer">
+          Watch on YouTube ↗
+        </a>
+      )}
+
+      {keyPoints.length > 0 && (
+        <ul className="extracted-figures">
+          {keyPoints.map((point, index) => (
+            <li key={index}>{point}</li>
+          ))}
+        </ul>
+      )}
+
       {keyFields.length > 0 && (
         <dl className="extracted-fields">
           {keyFields.map(([key, value]) => (

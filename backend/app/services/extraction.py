@@ -17,7 +17,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import Concept, ConceptLink, ConceptMention
-from app.services.gemini_client import generate_structured, generate_structured_from_file
+from app.services.gemini_client import (
+    generate_structured,
+    generate_structured_from_file,
+    generate_structured_from_video_url,
+)
 from app.services.graph_math import unique_pairs
 
 _CONCEPTS_SYSTEM_INSTRUCTION = (
@@ -122,6 +126,34 @@ def extract_document_content(file_bytes: bytes, mime_type: str) -> DocumentExtra
     return generate_structured_from_file(
         file_bytes, mime_type, DocumentExtraction, system_instruction=_DOCUMENT_SYSTEM_INSTRUCTION
     )
+
+
+_VIDEO_SYSTEM_INSTRUCTION = (
+    "Watch this video -- both what's shown and what's said -- and produce:\n"
+    "- title: the video's actual title.\n"
+    "- summary: a thorough, detailed account of its content, written so "
+    "someone could answer specific questions about the video from this "
+    "text alone without watching it. Cover what's said AND what's shown "
+    "on screen (demos, diagrams, code, slides, on-screen text) -- don't "
+    "just describe the audio. Several paragraphs for a substantial video; "
+    "shorter is fine for a short one.\n"
+    "- key_points: 3-8 short, specific takeaways or claims from the video."
+)
+
+
+class VideoExtraction(BaseModel):
+    title: str = Field(..., description="The video's actual title.")
+    summary: str = Field(..., description="A detailed account of the video's content, covering audio and visuals.")
+    key_points: list[str] = Field(default_factory=list, max_length=8)
+
+
+def extract_youtube_content(video_url: str) -> VideoExtraction:
+    """Ask Gemini to actually watch a YouTube video (not just scrape its
+    page) and return a title, a detailed summary, and key points -- the
+    summary becomes the item's searchable/chattable text, the same way a
+    document's full_text does.
+    """
+    return generate_structured_from_video_url(video_url, VideoExtraction, system_instruction=_VIDEO_SYSTEM_INSTRUCTION)
 
 
 def _normalize_concept_names(names: list[str]) -> list[str]:

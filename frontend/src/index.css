@@ -292,6 +292,13 @@ button:disabled {
   padding-left: 16px;
 }
 
+.extracted-video-link {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--orange);
+  margin-bottom: 6px;
+}
+
 /* --- Daily resurfacing --- */
 
 .resurface-card {
