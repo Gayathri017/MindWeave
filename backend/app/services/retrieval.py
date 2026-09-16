@@ -13,9 +13,15 @@ from app.services.gemini_client import embed_text, generate_image, generate_stru
 logger = logging.getLogger(__name__)
 
 _SYSTEM_INSTRUCTION = (
-    "You are Mindweave's assistant. Answer the user's question using ONLY "
-    "the provided excerpts from their own saved notes and links. If the "
-    "excerpts don't contain the answer, say so plainly instead of guessing.\n\n"
+    "You are Mindweave's assistant. Each excerpt below is numbered, e.g. "
+    "'[3] ...'. Answer the user's question using ONLY excerpts that are "
+    "actually relevant -- you were given a broad first pass of possible "
+    "matches, and some may be irrelevant noise; ignore those. If nothing "
+    "relevant is here, say so plainly instead of guessing.\n\n"
+    "Set used_excerpts to the numbers of exactly the excerpts you actually "
+    "relied on to answer -- omit any that were provided but not relevant. "
+    "This drives which sources get cited, so don't include one you didn't "
+    "really use, and don't omit one you did.\n\n"
     "Separately, decide whether a generated image would meaningfully help "
     "this specific answer -- e.g. the user is asking you to draw or "
     "visualize something, or a diagram/chart would make a described "
@@ -26,12 +32,20 @@ _SYSTEM_INSTRUCTION = (
     "leave image_prompt null."
 )
 
-_TOP_K = 6
+# Cast a wide net (cheap -- just a vector index scan) so the chat call
+# below has enough candidates to actually pick the relevant ones out of;
+# a narrow top-K straight from cosine similarity has no way to recover
+# from a semantically-close-but-irrelevant match crowding out a better one.
+_CANDIDATE_POOL_SIZE = 20
 _FALLBACK_TITLE_LENGTH = 60
 
 
 class _ChatAnswer(BaseModel):
     answer: str = Field(..., description="The answer to the user's question.")
+    used_excerpts: list[int] = Field(
+        default_factory=list,
+        description="The bracketed numbers (e.g. 3 for '[3]') of exactly the excerpts actually used to answer.",
+    )
     image_prompt: str | None = Field(
         default=None,
         description="A detailed prompt for an image generator, only if an image would meaningfully help this answer.",
@@ -64,7 +78,7 @@ async def answer_question(
         select(Chunk)
         .where(Chunk.user_id == user_id)
         .order_by(Chunk.embedding.cosine_distance(query_vector))
-        .limit(_TOP_K)
+        .limit(_CANDIDATE_POOL_SIZE)
     )
     matches = result.scalars().all()
 
@@ -77,12 +91,20 @@ async def answer_question(
             None,
         )
 
-    context = "\n\n---\n\n".join(chunk.content for chunk in matches)
+    context = "\n\n---\n\n".join(f"[{index}] {chunk.content}" for index, chunk in enumerate(matches, start=1))
     prompt = f"Saved excerpts:\n\n{context}\n\nQuestion: {question}"
 
     result = generate_structured(prompt, _ChatAnswer, system_instruction=_SYSTEM_INSTRUCTION)
 
-    source_item_ids = list({chunk.item_id for chunk in matches})
+    # The model tells us which numbered excerpts it actually relied on --
+    # that's the reranking step, folded into the same call rather than a
+    # separate one. Fall back to every candidate only if it returned
+    # nothing usable (e.g. an empty or out-of-range list), so a citation
+    # is never silently dropped by a model quirk.
+    selected = {i for i in result.used_excerpts if 1 <= i <= len(matches)}
+    used_matches = [matches[i - 1] for i in selected] if selected else matches
+
+    source_item_ids = list({chunk.item_id for chunk in used_matches})
     source_items = (
         (await session.execute(select(Item).where(Item.id.in_(source_item_ids)))).scalars().all()
     )
