@@ -360,6 +360,28 @@ button:disabled {
   color: #FFF6EC;
 }
 
+.type-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.type-filter-chip {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text-muted-dark);
+}
+
+.type-filter-chip.active {
+  background: rgba(217, 122, 52, 0.2);
+  border-color: var(--orange);
+  color: #F0C08E;
+}
+
 .items-table {
   width: 100%;
   border-collapse: collapse;

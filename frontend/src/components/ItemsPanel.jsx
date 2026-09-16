@@ -201,6 +201,22 @@ function ItemCard({ item, onDelete }) {
 
 const VIEW_MODES = ['list', 'table', 'calendar']
 
+const TYPE_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'note', label: 'Notes' },
+  { id: 'link', label: 'Links' },
+  { id: 'video', label: 'Videos' },
+  { id: 'audio', label: 'Audio' },
+  { id: 'document', label: 'Documents' },
+]
+
+function itemTypeCategory(item) {
+  if (item.source_type === 'url' && item.extracted_data?.video_url) return 'video'
+  if (item.source_type === 'url') return 'link'
+  if (item.source_type === 'text') return 'note'
+  return item.source_type
+}
+
 function TableView({ items, onDelete }) {
   const [sortKey, setSortKey] = useState('date')
   const [sortDir, setSortDir] = useState('desc')
@@ -351,6 +367,7 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
   const [saving, setSaving] = useState(false)
   const [showUploadMenu, setShowUploadMenu] = useState(false)
   const [viewMode, setViewMode] = useState('list')
+  const [typeFilter, setTypeFilter] = useState('all')
   const [resurfaceDismissed, setResurfaceDismissed] = useState(false)
 
   const audioFileInputRef = useRef(null)
@@ -389,6 +406,9 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
 
   const resurfacedItem = useMemo(() => pickResurfacedItem(items), [items])
 
+  const filteredItems =
+    typeFilter === 'all' ? items : items.filter((item) => itemTypeCategory(item) === typeFilter)
+
   useEffect(() => {
     if (resurfacedItem) {
       setResurfaceDismissed(isResurfaceDismissedToday(resurfacedItem.id))
@@ -403,6 +423,7 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
 
   function scrollToItemInList(itemId) {
     setViewMode('list')
+    setTypeFilter('all')
     // Wait a tick so the list view (with this item's card) is in the DOM
     // before we look it up -- switching viewMode above is async.
     setTimeout(() => {
@@ -558,19 +579,39 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
         </div>
       )}
 
+      {!loading && items.length > 0 && (
+        <div className="type-filters">
+          {TYPE_FILTERS.filter(
+            (filter) => filter.id === 'all' || items.some((item) => itemTypeCategory(item) === filter.id)
+          ).map((filter) => (
+            <button
+              type="button"
+              key={filter.id}
+              className={`type-filter-chip${typeFilter === filter.id ? ' active' : ''}`}
+              onClick={() => setTypeFilter(filter.id)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="item-list">
         {loading && <p className="panel-hint">Loading&hellip;</p>}
         {!loading && items.length === 0 && (
           <p className="panel-hint">Nothing saved yet &mdash; add your first thought below.</p>
         )}
-        {!loading && items.length > 0 && viewMode === 'list' && (
-          items.map((item) => <ItemCard item={item} onDelete={handleDelete} key={item.id} />)
+        {!loading && items.length > 0 && filteredItems.length === 0 && (
+          <p className="panel-hint">Nothing in this category yet.</p>
         )}
-        {!loading && items.length > 0 && viewMode === 'table' && (
-          <TableView items={items} onDelete={handleDelete} />
+        {!loading && filteredItems.length > 0 && viewMode === 'list' && (
+          filteredItems.map((item) => <ItemCard item={item} onDelete={handleDelete} key={item.id} />)
         )}
-        {!loading && items.length > 0 && viewMode === 'calendar' && (
-          <CalendarView items={items} onDelete={handleDelete} />
+        {!loading && filteredItems.length > 0 && viewMode === 'table' && (
+          <TableView items={filteredItems} onDelete={handleDelete} />
+        )}
+        {!loading && filteredItems.length > 0 && viewMode === 'calendar' && (
+          <CalendarView items={filteredItems} onDelete={handleDelete} />
         )}
       </div>
 
