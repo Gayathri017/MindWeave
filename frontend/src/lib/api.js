@@ -138,6 +138,10 @@ export function transcribeAudio(audioBlob, filename = 'question.webm') {
   return authorizedUpload('/api/transcribe', formData)
 }
 
+export function explainItem(itemId) {
+  return authorizedFetch(`/api/items/${itemId}/explain`, { method: 'POST' })
+}
+
 export function uploadDocument(file, folderId = null) {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const formData = new FormData()

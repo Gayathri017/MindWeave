@@ -1,6 +1,15 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { deleteItem, listItems, moveItemToFolder, saveItem, uploadAudio, uploadDocument } from '../lib/api'
+import {
+  deleteItem,
+  explainItem,
+  listItems,
+  moveItemToFolder,
+  saveItem,
+  uploadAudio,
+  uploadDocument,
+} from '../lib/api'
 import { useAudioRecorder } from '../hooks/useAudioRecorder'
+import ExplainerPlayer from './ExplainerPlayer'
 
 const URL_PATTERN = /^https?:\/\//i
 
@@ -173,20 +182,35 @@ function ExtractedDataCard({ data }) {
   )
 }
 
-function ItemCard({ item, onDelete, folders, onMove }) {
+function ItemCard({ item, onDelete, folders, onMove, onExplain, explainingId }) {
+  const isExplaining = explainingId === item.id
   return (
     <div className="item-card" id={`item-${item.id}`}>
       <div className="item-card-header">
         <p className="title">{item.title || item.preview || item.source_url}</p>
-        <button
-          type="button"
-          className="delete-button"
-          onClick={() => onDelete(item.id)}
-          aria-label="Delete this item"
-          title="Delete"
-        >
-          &times;
-        </button>
+        <div className="item-card-actions">
+          {onExplain && (
+            <button
+              type="button"
+              className="explain-button"
+              onClick={() => onExplain(item.id)}
+              disabled={isExplaining}
+              aria-label="Explain this as a narrated slideshow"
+              title="Explain as a narrated slideshow"
+            >
+              {isExplaining ? '…' : '🎬'}
+            </button>
+          )}
+          <button
+            type="button"
+            className="delete-button"
+            onClick={() => onDelete(item.id)}
+            aria-label="Delete this item"
+            title="Delete"
+          >
+            &times;
+          </button>
+        </div>
       </div>
       <p className="time">{timeAgo(item.created_at)}</p>
       {item.extracted_data && <ExtractedDataCard data={item.extracted_data} />}
@@ -232,7 +256,7 @@ function itemTypeCategory(item) {
   return item.source_type
 }
 
-function TableView({ items, onDelete, folders, onMove }) {
+function TableView({ items, onDelete, folders, onMove, onExplain, explainingId }) {
   const [sortKey, setSortKey] = useState('date')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -299,6 +323,18 @@ function TableView({ items, onDelete, folders, onMove }) {
               )}
             </td>
             <td>
+              {onExplain && (
+                <button
+                  type="button"
+                  className="explain-button"
+                  onClick={() => onExplain(item.id)}
+                  disabled={explainingId === item.id}
+                  aria-label="Explain this as a narrated slideshow"
+                  title="Explain as a narrated slideshow"
+                >
+                  {explainingId === item.id ? '…' : '🎬'}
+                </button>
+              )}
               <button
                 type="button"
                 className="delete-button"
@@ -316,7 +352,7 @@ function TableView({ items, onDelete, folders, onMove }) {
   )
 }
 
-function CalendarView({ items, onDelete, folders, onMove }) {
+function CalendarView({ items, onDelete, folders, onMove, onExplain, explainingId }) {
   const [monthOffset, setMonthOffset] = useState(0)
   const [selectedDay, setSelectedDay] = useState(null)
 
@@ -385,7 +421,15 @@ function CalendarView({ items, onDelete, folders, onMove }) {
             <p className="panel-hint">Nothing saved on this day.</p>
           ) : (
             selectedItems.map((item) => (
-              <ItemCard item={item} onDelete={onDelete} folders={folders} onMove={onMove} key={item.id} />
+              <ItemCard
+                item={item}
+                onDelete={onDelete}
+                folders={folders}
+                onMove={onMove}
+                onExplain={onExplain}
+                explainingId={explainingId}
+                key={item.id}
+              />
             ))
           )}
         </div>
@@ -418,6 +462,8 @@ const ItemsPanel = forwardRef(function ItemsPanel(
   const [typeFilter, setTypeFilter] = useState('all')
   const [resurfaceDismissed, setResurfaceDismissed] = useState(false)
   const [pendingScroll, setPendingScroll] = useState(null)
+  const [explainingId, setExplainingId] = useState(null)
+  const [activeExplainer, setActiveExplainer] = useState(null)
 
   const audioFileInputRef = useRef(null)
   const documentFileInputRef = useRef(null)
@@ -463,6 +509,19 @@ const ItemsPanel = forwardRef(function ItemsPanel(
       onFoldersChanged?.()
     } catch (err) {
       setError(err.message)
+    }
+  }
+
+  async function handleExplain(itemId) {
+    setExplainingId(itemId)
+    setError(null)
+    try {
+      const explainer = await explainItem(itemId)
+      setActiveExplainer(explainer)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setExplainingId(null)
     }
   }
 
@@ -697,16 +756,40 @@ const ItemsPanel = forwardRef(function ItemsPanel(
         )}
         {!loading && filteredItems.length > 0 && viewMode === 'list' && (
           filteredItems.map((item) => (
-            <ItemCard item={item} onDelete={handleDelete} folders={folders} onMove={handleMove} key={item.id} />
+            <ItemCard
+              item={item}
+              onDelete={handleDelete}
+              folders={folders}
+              onMove={handleMove}
+              onExplain={handleExplain}
+              explainingId={explainingId}
+              key={item.id}
+            />
           ))
         )}
         {!loading && filteredItems.length > 0 && viewMode === 'table' && (
-          <TableView items={filteredItems} onDelete={handleDelete} folders={folders} onMove={handleMove} />
+          <TableView
+            items={filteredItems}
+            onDelete={handleDelete}
+            folders={folders}
+            onMove={handleMove}
+            onExplain={handleExplain}
+            explainingId={explainingId}
+          />
         )}
         {!loading && filteredItems.length > 0 && viewMode === 'calendar' && (
-          <CalendarView items={filteredItems} onDelete={handleDelete} folders={folders} onMove={handleMove} />
+          <CalendarView
+            items={filteredItems}
+            onDelete={handleDelete}
+            folders={folders}
+            onMove={handleMove}
+            onExplain={handleExplain}
+            explainingId={explainingId}
+          />
         )}
       </div>
+
+      {activeExplainer && <ExplainerPlayer explainer={activeExplainer} onClose={() => setActiveExplainer(null)} />}
 
       <form className="save-form" onSubmit={handleSubmit}>
         {error && <p className="error">{error}</p>}

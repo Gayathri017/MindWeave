@@ -17,6 +17,7 @@ from app.models.schemas import (
     ChatRequest,
     ChatResponse,
     CreateFolderRequest,
+    ExplainerResponse,
     FolderSummary,
     ItemSummary,
     ItemWithConcepts,
@@ -24,10 +25,11 @@ from app.models.schemas import (
     TranscriptionResponse,
     UpdateItemFolderRequest,
 )
+from app.services.explainer import build_explainer
 from app.services.folders import FolderNotFound, create_folder, delete_folder, list_folders
 from app.services.gemini_client import transcribe_audio
 from app.services.ingestion import DailyLimitExceeded, save_audio_item, save_document_item, save_item
-from app.services.items import delete_item, list_items, update_item_folder
+from app.services.items import delete_item, get_item, list_items, update_item_folder
 from app.services.retrieval import answer_question, get_chat_history
 
 router = APIRouter()
@@ -253,6 +255,34 @@ async def move_item(
         folder_id=item.folder_id,
         created_at=item.created_at,
     )
+
+
+@router.post("/items/{item_id}/explain", response_model=ExplainerResponse)
+@limiter.limit("5/hour")
+async def explain_item(
+    request: Request,
+    item_id: uuid.UUID,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> ExplainerResponse:
+    """Turn a saved item into a short narrated slideshow -- a script broken
+    into scenes, each with a generated image and generated narration audio.
+    Tightly rate-limited: each call is one script generation plus up to
+    five image and five audio generations, far pricier than a normal
+    chat turn.
+    """
+    item = await get_item(session, user_id, item_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+
+    try:
+        return build_explainer(item.raw_text)
+    except Exception as exc:
+        logger.exception("Explainer generation failed for item %s", item_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not generate an explainer for this item. Please try again in a few seconds.",
+        ) from exc
 
 
 @router.post("/folders", response_model=FolderSummary, status_code=status.HTTP_201_CREATED)

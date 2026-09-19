@@ -83,6 +83,17 @@ class ChatMessageOut(BaseModel):
     created_at: datetime
 
 
+class ExplainerSceneOut(BaseModel):
+    narration: str
+    image: str | None = Field(default=None, description="A data URL for this scene's generated image, if one was made.")
+    audio: str | None = Field(default=None, description="A data URL for this scene's narration audio, if it was made.")
+
+
+class ExplainerResponse(BaseModel):
+    title: str
+    scenes: list[ExplainerSceneOut]
+
+
 class GraphNode(BaseModel):
     id: uuid.UUID
     name: str

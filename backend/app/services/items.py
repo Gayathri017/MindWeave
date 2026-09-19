@@ -67,6 +67,12 @@ async def list_items(
     ]
 
 
+async def get_item(session: AsyncSession, user_id: str, item_id: uuid.UUID) -> Item | None:
+    return (
+        await session.execute(select(Item).where(Item.id == item_id, Item.user_id == user_id))
+    ).scalar_one_or_none()
+
+
 async def delete_item(session: AsyncSession, user_id: str, item_id: uuid.UUID) -> bool:
     """Delete an item, then clean up any concepts left with no items behind them.
 

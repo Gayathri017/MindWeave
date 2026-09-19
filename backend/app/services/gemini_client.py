@@ -181,6 +181,24 @@ def generate_image(prompt: str) -> tuple[bytes, str]:
     return base64.b64decode(image.data), image.mime_type or "image/png"
 
 
+def generate_speech(text: str) -> tuple[bytes, str]:
+    """Ask Gemini's TTS model to read a piece of text aloud.
+
+    Returns (audio_bytes, mime_type). Raises if the model didn't return
+    audio -- callers decide how to degrade (e.g. show the caption alone).
+    """
+    interaction = _client.interactions.create(
+        model=settings.gemini_tts_model,
+        input=text,
+        response_format={"type": "audio"},
+        store=False,
+    )
+    audio = interaction.output_audio
+    if audio is None or not audio.data:
+        raise RuntimeError("Gemini did not return audio for this text.")
+    return base64.b64decode(audio.data), audio.mime_type or "audio/mp3"
+
+
 def generate_title(text: str, max_chars_considered: int = 3000) -> str:
     """A short, descriptive title for a long piece of text, e.g. a lecture
     transcript -- unlike a short note, the first 100 characters of a

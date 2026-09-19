@@ -295,6 +295,30 @@ button:disabled {
   flex: 1;
 }
 
+.item-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.explain-button {
+  background: none;
+  border: none;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0.85;
+}
+
+.explain-button:hover {
+  opacity: 1;
+}
+
+.explain-button:disabled {
+  opacity: 0.4;
+}
+
 .delete-button {
   background: none;
   border: none;
@@ -1092,6 +1116,113 @@ button:disabled {
   color: var(--text-muted-cream);
   padding: 16px;
   text-align: center;
+}
+
+/* --- Explainer slideshow player --- */
+
+.explainer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+
+.explainer-player {
+  width: min(560px, 100%);
+  background: var(--olive-dark);
+  color: var(--text-on-dark);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.explainer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.explainer-title {
+  font-family: 'Fraunces', serif;
+  font-size: 16px;
+}
+
+.explainer-header .delete-button {
+  color: var(--text-on-dark);
+  font-size: 20px;
+}
+
+.explainer-stage {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--olive);
+}
+
+.explainer-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.explainer-image-placeholder {
+  width: 100%;
+  height: 100%;
+  background: var(--olive);
+}
+
+.explainer-caption {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-on-dark);
+  min-height: 3em;
+}
+
+.explainer-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.explainer-nav-button,
+.explainer-play-button {
+  background: var(--olive);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  color: var(--text-on-dark);
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.explainer-play-button {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: #FFF6EC;
+}
+
+.explainer-nav-button:disabled {
+  opacity: 0.35;
+}
+
+.explainer-progress {
+  font-size: 12px;
+  color: var(--text-muted-dark);
+  margin-left: 6px;
 }
 
 /* --- Mobile: stack panels vertically, scroll between them --- */
