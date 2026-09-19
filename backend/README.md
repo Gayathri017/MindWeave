@@ -64,6 +64,39 @@ Visit `http://localhost:8000/health` -- you should see `{"status": "ok"}`.
 pytest
 ```
 
+Most tests are pure-logic unit tests with no setup needed. The folder,
+item-filing, and chat-persistence tests (`tests/test_folders.py`,
+`tests/test_items_folders.py`, `tests/test_chat_persistence.py`) are
+integration tests against a real database instead -- consistent with
+this project's existing rule of preferring a real DB over mocking one
+(see `tests/test_chunking.py`'s docstring) -- so they need a disposable
+local Postgres+pgvector instance, separate from your real `.env`
+database, and **skip automatically** (not fail) if that instance isn't
+running:
+
+```bash
+# One-time: start a throwaway test database
+docker run -d --name mindweave-test-db -e POSTGRES_PASSWORD=test -p 55432:5432 pgvector/pgvector:pg16
+
+# Stub the `auth` schema/table and auth.uid() that schema.sql expects
+# Supabase to provide (real Supabase auth isn't needed for these tests --
+# they call the service functions directly with a user_id, bypassing RLS)
+docker exec -i mindweave-test-db psql -U postgres -d postgres <<'SQL'
+create schema if not exists auth;
+create extension if not exists pgcrypto;
+create table if not exists auth.users (id uuid primary key default gen_random_uuid());
+create or replace function auth.uid() returns uuid as $$ select null::uuid $$ language sql stable;
+SQL
+
+# Apply the real schema
+docker exec -i mindweave-test-db psql -U postgres -d postgres < db/schema.sql
+
+# Then just run pytest as normal -- it finds the test DB at
+# postgresql+asyncpg://postgres:test@localhost:55432/postgres by default
+# (override with the TEST_DATABASE_URL env var if you used a different port)
+pytest
+```
+
 ## A security detail worth understanding
 
 Session tokens are verified against Supabase's public JWKS endpoint
