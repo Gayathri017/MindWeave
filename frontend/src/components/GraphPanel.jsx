@@ -39,17 +39,23 @@ export default function GraphPanel({ refreshKey, width }) {
   }, [refreshKey])
 
   useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    // A plain window "resize" listener misses every reason the graph's
+    // own container can change size without the window changing at all --
+    // dragging the panel's resize handle, the flex layout settling after
+    // first paint, or the mobile stacked layout -- so the canvas would
+    // render at a stale (often too-small) size and the graph would look
+    // clipped. ResizeObserver watches the container itself instead.
     function updateSize() {
-      if (containerRef.current) {
-        setSize({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
-        })
-      }
+      setSize({ width: container.clientWidth, height: container.clientHeight })
     }
+
     updateSize()
-    window.addEventListener('resize', updateSize)
-    return () => window.removeEventListener('resize', updateSize)
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(container)
+    return () => observer.disconnect()
   }, [])
 
   // Node size and color reflect how connected a concept is -- a concept

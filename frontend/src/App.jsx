@@ -11,7 +11,7 @@ import FolderBar from './components/FolderBar'
 
 const MIN_PANEL_WIDTH = 220
 const MAX_LEFT_WIDTH = 480
-const MAX_RIGHT_WIDTH = 560
+const MAX_RIGHT_WIDTH = 720
 const HANDLE_WIDTH = 6
 const MIN_MIDDLE_WIDTH = 280
 const MOBILE_QUERY = '(max-width: 768px)'
@@ -24,7 +24,7 @@ export default function App() {
   const { session, loading } = useAuth()
   const [refreshKey, setRefreshKey] = useState(0)
   const [leftWidth, setLeftWidth] = useState(300)
-  const [rightWidth, setRightWidth] = useState(380)
+  const [rightWidth, setRightWidth] = useState(460)
   const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_QUERY).matches)
   const [folders, setFolders] = useState([])
   const [activeFolderId, setActiveFolderId] = useState(null)

@@ -909,7 +909,7 @@ button:disabled {
 /* --- Right panel: graph --- */
 
 .right-panel {
-  max-width: min(560px, 34vw);
+  max-width: min(720px, 42vw);
   flex-shrink: 0;
   background: var(--graph-dark);
   color: var(--text-on-dark);
