@@ -66,23 +66,31 @@ async function authorizedUpload(path, formData) {
   return response.json()
 }
 
-export function listItems() {
-  return authorizedFetch('/api/items')
+function withFolderQuery(path, folderId) {
+  return folderId ? `${path}?folder_id=${folderId}` : path
 }
 
-export function saveItem({ sourceType, content }) {
+export function listItems(folderId = null) {
+  return authorizedFetch(withFolderQuery('/api/items', folderId))
+}
+
+export function saveItem({ sourceType, content, folderId = null }) {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   return authorizedFetch('/api/items', {
     method: 'POST',
-    body: JSON.stringify({ source_type: sourceType, content, timezone }),
+    body: JSON.stringify({ source_type: sourceType, content, folder_id: folderId, timezone }),
   })
 }
 
-export function askQuestion(question) {
+export function askQuestion(question, folderId = null) {
   return authorizedFetch('/api/chat', {
     method: 'POST',
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, folder_id: folderId }),
   })
+}
+
+export function getChatHistory(folderId = null) {
+  return authorizedFetch(withFolderQuery('/api/chat/messages', folderId))
 }
 
 export function getGraph() {
@@ -93,11 +101,34 @@ export function deleteItem(id) {
   return authorizedFetch(`/api/items/${id}`, { method: 'DELETE' })
 }
 
-export function uploadAudio(audioBlob, filename = 'recording.webm') {
+export function moveItemToFolder(itemId, folderId) {
+  return authorizedFetch(`/api/items/${itemId}/folder`, {
+    method: 'PATCH',
+    body: JSON.stringify({ folder_id: folderId }),
+  })
+}
+
+export function listFolders() {
+  return authorizedFetch('/api/folders')
+}
+
+export function createFolder(name) {
+  return authorizedFetch('/api/folders', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function deleteFolder(id) {
+  return authorizedFetch(`/api/folders/${id}`, { method: 'DELETE' })
+}
+
+export function uploadAudio(audioBlob, filename = 'recording.webm', folderId = null) {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const formData = new FormData()
   formData.append('file', audioBlob, filename)
   formData.append('timezone', timezone)
+  if (folderId) formData.append('folder_id', folderId)
   return authorizedUpload('/api/items/audio', formData)
 }
 
@@ -107,10 +138,11 @@ export function transcribeAudio(audioBlob, filename = 'question.webm') {
   return authorizedUpload('/api/transcribe', formData)
 }
 
-export function uploadDocument(file) {
+export function uploadDocument(file, folderId = null) {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const formData = new FormData()
   formData.append('file', file, file.name)
   formData.append('timezone', timezone)
+  if (folderId) formData.append('folder_id', folderId)
   return authorizedUpload('/api/items/document', formData)
 }

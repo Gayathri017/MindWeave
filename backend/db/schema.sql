@@ -4,6 +4,19 @@
 
 create extension if not exists vector;
 
+-- A folder is a true container, like a filesystem folder, not a tag: each
+-- item belongs to at most one. Deleting a folder deletes everything in it
+-- (see the items.folder_id foreign key below) -- the same way deleting a
+-- folder on disk takes its contents with it.
+create table if not exists folders (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users (id) on delete cascade,
+    name text not null,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists folders_user_id_idx on folders (user_id);
+
 -- One row per thing the user saves (a pasted URL or a raw note).
 create table if not exists items (
     id uuid primary key default gen_random_uuid(),
@@ -18,12 +31,17 @@ create table if not exists items (
     -- see DocumentExtraction in app/services/extraction.py for what a
     -- given extraction run can populate here.
     extracted_data jsonb,
+    -- Null means "unfiled" -- sits in the main list, not inside any folder.
+    folder_id uuid references folders (id) on delete cascade,
     created_at timestamptz not null default now()
 );
 
--- Adds the column for databases created before this field existed; a
--- no-op (IF NOT EXISTS) on a fresh database that already has it above.
+-- Adds the columns for databases created before these fields existed; a
+-- no-op (IF NOT EXISTS) on a fresh database that already has them above.
 alter table items add column if not exists extracted_data jsonb;
+alter table items add column if not exists folder_id uuid references folders (id) on delete cascade;
+
+create index if not exists items_folder_id_idx on items (folder_id);
 
 -- Widen the allowed source types for databases created before 'document'
 -- replaced the never-used 'pdf' value (auto-generated constraint name,
@@ -55,8 +73,16 @@ create index if not exists chunks_embedding_idx
 -- Row Level Security: a user can only ever see or touch their own rows.
 -- This is the safety net behind the app-level filtering in the backend --
 -- see app/database.py for how the backend activates it on a direct connection.
+alter table folders enable row level security;
 alter table items enable row level security;
 alter table chunks enable row level security;
+
+drop policy if exists "Users can manage their own folders" on folders;
+create policy "Users can manage their own folders"
+    on folders
+    for all
+    using (auth.uid() = user_id)
+    with check (auth.uid() = user_id);
 
 -- Postgres has no "create policy if not exists", so we drop first --
 -- this makes the whole file safe to re-run from scratch at any time,
@@ -137,5 +163,34 @@ create policy "Users can manage their own concept mentions"
 drop policy if exists "Users can manage their own concept links" on concept_links;
 create policy "Users can manage their own concept links"
     on concept_links for all
+    using (auth.uid() = user_id)
+    with check (auth.uid() = user_id);
+
+-- One row per chat turn (a question or an answer), so a folder's chat
+-- survives a page refresh instead of living only in browser memory.
+-- folder_id null means the global "Ask your mind" thread, which searches
+-- every saved item regardless of folder; a non-null folder_id means that
+-- folder's own thread, scoped to only its items.
+create table if not exists chat_messages (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users (id) on delete cascade,
+    folder_id uuid references folders (id) on delete cascade,
+    role text not null check (role in ('user', 'answer')),
+    text text not null,
+    -- The {id, title} pairs a saved answer cited, so history can still
+    -- render clickable citation chips after a reload.
+    sources jsonb,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists chat_messages_user_id_idx on chat_messages (user_id);
+create index if not exists chat_messages_folder_id_idx on chat_messages (folder_id);
+
+alter table chat_messages enable row level security;
+
+drop policy if exists "Users can manage their own chat messages" on chat_messages;
+create policy "Users can manage their own chat messages"
+    on chat_messages
+    for all
     using (auth.uid() = user_id)
     with check (auth.uid() = user_id);

@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import Concept, ConceptMention, Item
 from app.models.schemas import ItemWithConcepts
+from app.services.concepts_cleanup import cleanup_orphaned_concepts
+from app.services.folders import validate_folder_ownership
 
 _DEFAULT_LIMIT = 100
 _PREVIEW_LENGTH = 100
@@ -17,24 +19,22 @@ def _make_preview(raw_text: str, limit: int = _PREVIEW_LENGTH) -> str:
     stripped = raw_text.strip()
     if len(stripped) <= limit:
         return stripped
-    return stripped[:limit].rsplit(" ", 1)[0] + "\u2026"
+    return stripped[:limit].rsplit(" ", 1)[0] + "…"
 
 
-async def list_items(session: AsyncSession, user_id: str, limit: int = _DEFAULT_LIMIT) -> list[ItemWithConcepts]:
+async def list_items(
+    session: AsyncSession, user_id: str, folder_id: uuid.UUID | None = None, limit: int = _DEFAULT_LIMIT
+) -> list[ItemWithConcepts]:
     """Most recent items first, each with the concept names it's tagged with.
 
     Two queries rather than one big join-and-group: simpler to read, and
     avoids repeating each item's columns once per concept it has.
     """
-    items = (
-        (
-            await session.execute(
-                select(Item).where(Item.user_id == user_id).order_by(Item.created_at.desc()).limit(limit)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    query = select(Item).where(Item.user_id == user_id)
+    if folder_id is not None:
+        query = query.where(Item.folder_id == folder_id)
+
+    items = (await session.execute(query.order_by(Item.created_at.desc()).limit(limit))).scalars().all()
     if not items:
         return []
 
@@ -57,6 +57,7 @@ async def list_items(session: AsyncSession, user_id: str, limit: int = _DEFAULT_
             source_type=item.source_type,
             source_url=item.source_url,
             title=item.title,
+            folder_id=item.folder_id,
             created_at=item.created_at,
             concepts=concepts_by_item.get(item.id, []),
             preview=_make_preview(item.raw_text),
@@ -70,12 +71,7 @@ async def delete_item(session: AsyncSession, user_id: str, item_id: uuid.UUID) -
     """Delete an item, then clean up any concepts left with no items behind them.
 
     Deleting the item cascades (via the foreign keys in db/schema.sql) to
-    its chunks and concept_mentions automatically. But concepts themselves
-    are independent of any one item -- after that cascade, a concept that
-    only ever appeared in this item now has zero mentions left. Left alone,
-    it would sit in the graph forever as a node pointing at nothing. This
-    finds and removes exactly those now-orphaned concepts (which in turn
-    cascades to any concept_links involving them).
+    its chunks and concept_mentions automatically.
 
     Returns True if an item was actually deleted, False if nothing matched
     (already gone, or never belonged to this user).
@@ -84,13 +80,28 @@ async def delete_item(session: AsyncSession, user_id: str, item_id: uuid.UUID) -
     if result.rowcount == 0:
         return False
 
-    orphaned = await session.execute(
-        select(Concept.id)
-        .where(Concept.user_id == user_id)
-        .where(~Concept.id.in_(select(ConceptMention.concept_id)))
-    )
-    orphaned_ids = [row[0] for row in orphaned.all()]
-    if orphaned_ids:
-        await session.execute(delete(Concept).where(Concept.id.in_(orphaned_ids)))
-
+    await cleanup_orphaned_concepts(session, user_id)
     return True
+
+
+async def update_item_folder(
+    session: AsyncSession, user_id: str, item_id: uuid.UUID, folder_id: uuid.UUID | None
+) -> Item | None:
+    """Move an item into a folder, or back to the main list if folder_id is None.
+
+    Raises FolderNotFound if folder_id doesn't exist or isn't owned by this
+    user -- lets the router turn that into a 404 rather than silently
+    filing the item into a folder it can never actually see again.
+    """
+    item = (
+        await session.execute(select(Item).where(Item.id == item_id, Item.user_id == user_id))
+    ).scalar_one_or_none()
+    if item is None:
+        return None
+
+    if folder_id is not None:
+        await validate_folder_ownership(session, user_id, folder_id)
+
+    item.folder_id = folder_id
+    await session.flush()
+    return item

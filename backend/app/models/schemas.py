@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 class SaveItemRequest(BaseModel):
     source_type: Literal["url", "text"]
     content: str = Field(..., min_length=1, max_length=50_000, description="A URL, or raw text to save.")
+    folder_id: uuid.UUID | None = Field(default=None, description="Folder to file this item into, if any.")
     timezone: str | None = Field(
         default=None,
         description="IANA timezone name (e.g. 'Asia/Kolkata'), detected client-side. Falls back to UTC if omitted or not a real timezone.",
@@ -21,6 +22,7 @@ class ItemSummary(BaseModel):
     source_type: str
     source_url: str | None
     title: str | None
+    folder_id: uuid.UUID | None = None
     created_at: datetime
 
 
@@ -35,8 +37,26 @@ class ItemWithConcepts(ItemSummary):
     )
 
 
+class UpdateItemFolderRequest(BaseModel):
+    folder_id: uuid.UUID | None = Field(default=None, description="Folder to move this item into, or null to unfile it.")
+
+
+class CreateFolderRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+
+
+class FolderSummary(BaseModel):
+    id: uuid.UUID
+    name: str
+    item_count: int = 0
+    created_at: datetime
+
+
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2_000)
+    folder_id: uuid.UUID | None = Field(
+        default=None, description="Scope the question (and its history) to one folder's items, or omit for global."
+    )
 
 
 class TranscriptionResponse(BaseModel):
@@ -54,6 +74,13 @@ class ChatResponse(BaseModel):
     image: str | None = Field(
         default=None, description="A data URL (data:<mime>;base64,...) for a generated image, if one was made."
     )
+
+
+class ChatMessageOut(BaseModel):
+    role: Literal["user", "answer"]
+    text: str
+    sources: list[ChatSource] = Field(default_factory=list)
+    created_at: datetime
 
 
 class GraphNode(BaseModel):

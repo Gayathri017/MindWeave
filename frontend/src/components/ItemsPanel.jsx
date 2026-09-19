@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { deleteItem, listItems, saveItem, uploadAudio, uploadDocument } from '../lib/api'
+import { deleteItem, listItems, moveItemToFolder, saveItem, uploadAudio, uploadDocument } from '../lib/api'
 import { useAudioRecorder } from '../hooks/useAudioRecorder'
 
 const URL_PATTERN = /^https?:\/\//i
@@ -173,7 +173,7 @@ function ExtractedDataCard({ data }) {
   )
 }
 
-function ItemCard({ item, onDelete }) {
+function ItemCard({ item, onDelete, folders, onMove }) {
   return (
     <div className="item-card" id={`item-${item.id}`}>
       <div className="item-card-header">
@@ -195,6 +195,21 @@ function ItemCard({ item, onDelete }) {
           {concept}
         </span>
       ))}
+      {onMove && folders && folders.length > 0 && (
+        <select
+          className="item-folder-select"
+          value={item.folder_id || ''}
+          onChange={(event) => onMove(item.id, event.target.value || null)}
+          title="Move to folder"
+        >
+          <option value="">Unfiled</option>
+          {folders.map((folder) => (
+            <option value={folder.id} key={folder.id}>
+              {folder.name}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   )
 }
@@ -217,7 +232,7 @@ function itemTypeCategory(item) {
   return item.source_type
 }
 
-function TableView({ items, onDelete }) {
+function TableView({ items, onDelete, folders, onMove }) {
   const [sortKey, setSortKey] = useState('date')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -255,6 +270,7 @@ function TableView({ items, onDelete }) {
           <th onClick={() => toggleSort('type')}>Type{sortIndicator('type')}</th>
           <th onClick={() => toggleSort('date')}>Date{sortIndicator('date')}</th>
           <th />
+          <th />
         </tr>
       </thead>
       <tbody>
@@ -265,6 +281,23 @@ function TableView({ items, onDelete }) {
               <span className="tag">{item.source_type}</span>
             </td>
             <td>{formatShortDate(item.created_at)}</td>
+            <td>
+              {onMove && folders && folders.length > 0 && (
+                <select
+                  className="item-folder-select"
+                  value={item.folder_id || ''}
+                  onChange={(event) => onMove(item.id, event.target.value || null)}
+                  title="Move to folder"
+                >
+                  <option value="">Unfiled</option>
+                  {folders.map((folder) => (
+                    <option value={folder.id} key={folder.id}>
+                      {folder.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </td>
             <td>
               <button
                 type="button"
@@ -283,7 +316,7 @@ function TableView({ items, onDelete }) {
   )
 }
 
-function CalendarView({ items, onDelete }) {
+function CalendarView({ items, onDelete, folders, onMove }) {
   const [monthOffset, setMonthOffset] = useState(0)
   const [selectedDay, setSelectedDay] = useState(null)
 
@@ -351,7 +384,9 @@ function CalendarView({ items, onDelete }) {
           {selectedItems.length === 0 ? (
             <p className="panel-hint">Nothing saved on this day.</p>
           ) : (
-            selectedItems.map((item) => <ItemCard item={item} onDelete={onDelete} key={item.id} />)
+            selectedItems.map((item) => (
+              <ItemCard item={item} onDelete={onDelete} folders={folders} onMove={onMove} key={item.id} />
+            ))
           )}
         </div>
       )}
@@ -359,25 +394,45 @@ function CalendarView({ items, onDelete }) {
   )
 }
 
-const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItemsChanged, width }, ref) {
+const ItemsPanel = forwardRef(function ItemsPanel(
+  {
+    userEmail,
+    onSignOut,
+    onItemsChanged,
+    onFoldersChanged,
+    onNavigateHome,
+    width,
+    folders = [],
+    activeFolderId = null,
+  },
+  ref
+) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [content, setContent] = useState('')
+  const [saveFolderId, setSaveFolderId] = useState('')
   const [saving, setSaving] = useState(false)
   const [showUploadMenu, setShowUploadMenu] = useState(false)
   const [viewMode, setViewMode] = useState('list')
   const [typeFilter, setTypeFilter] = useState('all')
   const [resurfaceDismissed, setResurfaceDismissed] = useState(false)
+  const [pendingScroll, setPendingScroll] = useState(null)
 
   const audioFileInputRef = useRef(null)
   const documentFileInputRef = useRef(null)
   const menuRef = useRef(null)
   const noteInputRef = useRef(null)
 
+  // On Home, this picker lets you file a new item straight into a folder
+  // without navigating into it first. Inside a folder, saving always
+  // files into that folder implicitly -- there's nothing to pick.
+  const effectiveSaveFolderId = activeFolderId || saveFolderId || null
+
   async function loadItems() {
+    setLoading(true)
     try {
-      const data = await listItems()
+      const data = await listItems(activeFolderId)
       setItems(data)
       setError(null)
     } catch (err) {
@@ -388,11 +443,28 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
   }
 
   useEffect(() => {
-    async function load() {
-      await loadItems()
+    loadItems()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFolderId])
+
+  useEffect(() => {
+    if (pendingScroll && !loading) {
+      setPendingScroll(null)
+      // One more tick so the just-loaded items have actually painted.
+      setTimeout(() => flashScrollTo(pendingScroll), 0)
     }
-    load()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingScroll, loading])
+
+  async function handleMove(itemId, folderId) {
+    try {
+      await moveItemToFolder(itemId, folderId)
+      await loadItems()
+      onFoldersChanged?.()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
 
   useEffect(() => {
     function handleOutsideClick(event) {
@@ -421,18 +493,30 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
     setResurfaceDismissed(true)
   }
 
+  function flashScrollTo(itemId) {
+    const el = document.getElementById(`item-${itemId}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('item-card-flash')
+    setTimeout(() => el.classList.remove('item-card-flash'), 1200)
+  }
+
   function scrollToItemInList(itemId) {
     setViewMode('list')
     setTypeFilter('all')
-    // Wait a tick so the list view (with this item's card) is in the DOM
-    // before we look it up -- switching viewMode above is async.
-    setTimeout(() => {
-      const el = document.getElementById(`item-${itemId}`)
-      if (!el) return
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      el.classList.add('item-card-flash')
-      setTimeout(() => el.classList.remove('item-card-flash'), 1200)
-    }, 0)
+    if (activeFolderId) {
+      // Switching folders reloads items asynchronously -- Home always
+      // shows every item regardless of folder, so jumping there first
+      // guarantees the target is in the DOM, even if it's filed in a
+      // folder other than the one currently open. Queue the scroll for
+      // once that reload actually lands (see the pendingScroll effect).
+      setPendingScroll(itemId)
+      onNavigateHome?.()
+    } else {
+      // Already on Home -- the item is already loaded, just wait a tick
+      // for the list-view re-render.
+      setTimeout(() => flashScrollTo(itemId), 0)
+    }
   }
 
   function handleViewResurfaced() {
@@ -448,10 +532,12 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
     setError(null)
     try {
       const sourceType = URL_PATTERN.test(trimmed) ? 'url' : 'text'
-      await saveItem({ sourceType, content: trimmed })
+      await saveItem({ sourceType, content: trimmed, folderId: effectiveSaveFolderId })
       setContent('')
+      setSaveFolderId('')
       await loadItems()
       onItemsChanged?.()
+      onFoldersChanged?.()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -469,6 +555,7 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
       await deleteItem(itemId)
       await loadItems()
       onItemsChanged?.()
+      onFoldersChanged?.()
     } catch (err) {
       setError(err.message)
     }
@@ -478,9 +565,10 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
     setSaving(true)
     setError(null)
     try {
-      await uploadAudio(blobOrFile, blobOrFile.name || 'recording.webm')
+      await uploadAudio(blobOrFile, blobOrFile.name || 'recording.webm', effectiveSaveFolderId)
       await loadItems()
       onItemsChanged?.()
+      onFoldersChanged?.()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -516,13 +604,14 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
     const failures = []
     for (const file of files) {
       try {
-        await uploadDocument(file)
+        await uploadDocument(file, effectiveSaveFolderId)
       } catch (err) {
         failures.push(`${file.name}: ${err.message}`)
       }
     }
     await loadItems()
     onItemsChanged?.()
+    onFoldersChanged?.()
     setSaving(false)
     if (failures.length > 0) {
       setError(failures.join(' — '))
@@ -599,19 +688,23 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
       <div className="item-list">
         {loading && <p className="panel-hint">Loading&hellip;</p>}
         {!loading && items.length === 0 && (
-          <p className="panel-hint">Nothing saved yet &mdash; add your first thought below.</p>
+          <p className="panel-hint">
+            {activeFolderId ? 'Nothing filed here yet.' : 'Nothing saved yet — add your first thought below.'}
+          </p>
         )}
         {!loading && items.length > 0 && filteredItems.length === 0 && (
           <p className="panel-hint">Nothing in this category yet.</p>
         )}
         {!loading && filteredItems.length > 0 && viewMode === 'list' && (
-          filteredItems.map((item) => <ItemCard item={item} onDelete={handleDelete} key={item.id} />)
+          filteredItems.map((item) => (
+            <ItemCard item={item} onDelete={handleDelete} folders={folders} onMove={handleMove} key={item.id} />
+          ))
         )}
         {!loading && filteredItems.length > 0 && viewMode === 'table' && (
-          <TableView items={filteredItems} onDelete={handleDelete} />
+          <TableView items={filteredItems} onDelete={handleDelete} folders={folders} onMove={handleMove} />
         )}
         {!loading && filteredItems.length > 0 && viewMode === 'calendar' && (
-          <CalendarView items={filteredItems} onDelete={handleDelete} />
+          <CalendarView items={filteredItems} onDelete={handleDelete} folders={folders} onMove={handleMove} />
         )}
       </div>
 
@@ -662,6 +755,23 @@ const ItemsPanel = forwardRef(function ItemsPanel({ userEmail, onSignOut, onItem
               disabled={saving}
               ref={noteInputRef}
             />
+
+            {!activeFolderId && folders.length > 0 && (
+              <select
+                className="save-folder-select"
+                value={saveFolderId}
+                onChange={(event) => setSaveFolderId(event.target.value)}
+                disabled={saving}
+                title="File into a folder"
+              >
+                <option value="">No folder</option>
+                {folders.map((folder) => (
+                  <option value={folder.id} key={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+            )}
 
             <button
               type="button"

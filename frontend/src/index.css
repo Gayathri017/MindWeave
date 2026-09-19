@@ -122,10 +122,98 @@ button:disabled {
 
 /* --- App shell: three panels --- */
 
-.app-shell {
+.app-root {
   height: 100%;
   display: flex;
+  flex-direction: column;
+}
+
+.app-shell {
+  flex: 1;
+  display: flex;
   overflow: hidden;
+  min-height: 0;
+}
+
+.folder-bar {
+  flex-shrink: 0;
+  background: var(--olive-dark);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 10px 20px;
+}
+
+.folder-bar-error {
+  font-size: 12px;
+  margin: 0 0 6px;
+}
+
+.folder-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.folder-pill {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--olive);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted-dark);
+  white-space: nowrap;
+}
+
+.folder-pill.active {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: #FFF6EC;
+}
+
+.folder-pill-count {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.folder-pill-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.folder-pill-delete:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.folder-pill.new-folder {
+  color: var(--text-muted-dark);
+  background: none;
+  border-style: dashed;
+}
+
+.folder-create-form {
+  flex-shrink: 0;
+}
+
+.folder-create-input {
+  background: var(--olive);
+  border: 1px solid var(--orange);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-on-dark);
+  width: 140px;
 }
 
 .panel-header {
@@ -515,6 +603,27 @@ button:disabled {
 .save-input:focus {
   outline: none;
   border-color: var(--orange);
+}
+
+.save-folder-select {
+  flex-shrink: 0;
+  max-width: 110px;
+  background: var(--olive);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 8px 6px;
+  font-size: 12px;
+  color: var(--text-muted-dark);
+}
+
+.item-folder-select {
+  margin-top: 8px;
+  background: var(--olive);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--text-muted-dark);
 }
 
 .save-row {

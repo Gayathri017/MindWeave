@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from './hooks/useAuth'
 import { supabase } from './lib/supabase'
+import { listFolders } from './lib/api'
 import SignIn from './components/SignIn'
 import ItemsPanel from './components/ItemsPanel'
 import ChatPanel from './components/ChatPanel'
 import GraphPanel from './components/GraphPanel'
 import CommandPalette from './components/CommandPalette'
+import FolderBar from './components/FolderBar'
 
 const MIN_PANEL_WIDTH = 220
 const MAX_LEFT_WIDTH = 480
@@ -24,8 +26,22 @@ export default function App() {
   const [leftWidth, setLeftWidth] = useState(300)
   const [rightWidth, setRightWidth] = useState(380)
   const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_QUERY).matches)
+  const [folders, setFolders] = useState([])
+  const [activeFolderId, setActiveFolderId] = useState(null)
   const itemsPanelRef = useRef(null)
   const chatPanelRef = useRef(null)
+
+  const loadFolders = useCallback(async () => {
+    try {
+      setFolders(await listFolders())
+    } catch {
+      // Silent -- the folder bar just stays empty; core app still works.
+    }
+  }, [])
+
+  useEffect(() => {
+    if (session) loadFolders()
+  }, [session, loadFolders])
 
   // Below the breakpoint, panels stack and scroll instead of sitting
   // side-by-side -- dragging to resize doesn't make sense there, so we
@@ -81,20 +97,34 @@ export default function App() {
     return <SignIn />
   }
 
+  const activeFolder = folders.find((folder) => folder.id === activeFolderId) || null
+
   return (
-    <div className="app-shell">
-      <ItemsPanel
-        ref={itemsPanelRef}
-        userEmail={session.user.email}
-        onSignOut={() => supabase.auth.signOut()}
-        onItemsChanged={() => setRefreshKey((key) => key + 1)}
-        width={isMobile ? undefined : leftWidth}
+    <div className="app-root">
+      <FolderBar
+        folders={folders}
+        activeFolderId={activeFolderId}
+        onSelectFolder={setActiveFolderId}
+        onFoldersChanged={loadFolders}
       />
-      {!isMobile && <div className="resize-handle" onMouseDown={startDrag('left')} />}
-      <ChatPanel ref={chatPanelRef} itemsPanelRef={itemsPanelRef} />
-      {!isMobile && <div className="resize-handle" onMouseDown={startDrag('right')} />}
-      <GraphPanel refreshKey={refreshKey} width={isMobile ? undefined : rightWidth} />
-      <CommandPalette itemsPanelRef={itemsPanelRef} chatPanelRef={chatPanelRef} />
+      <div className="app-shell">
+        <ItemsPanel
+          ref={itemsPanelRef}
+          userEmail={session.user.email}
+          onSignOut={() => supabase.auth.signOut()}
+          onItemsChanged={() => setRefreshKey((key) => key + 1)}
+          onFoldersChanged={loadFolders}
+          onNavigateHome={() => setActiveFolderId(null)}
+          width={isMobile ? undefined : leftWidth}
+          folders={folders}
+          activeFolderId={activeFolderId}
+        />
+        {!isMobile && <div className="resize-handle" onMouseDown={startDrag('left')} />}
+        <ChatPanel ref={chatPanelRef} itemsPanelRef={itemsPanelRef} activeFolderId={activeFolderId} activeFolderName={activeFolder?.name} />
+        {!isMobile && <div className="resize-handle" onMouseDown={startDrag('right')} />}
+        <GraphPanel refreshKey={refreshKey} width={isMobile ? undefined : rightWidth} />
+        <CommandPalette itemsPanelRef={itemsPanelRef} chatPanelRef={chatPanelRef} />
+      </div>
     </div>
   )
 }

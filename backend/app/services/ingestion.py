@@ -2,6 +2,7 @@
 
 import logging
 import re
+import uuid
 
 import httpx
 from bs4 import BeautifulSoup
@@ -19,6 +20,7 @@ from app.services.extraction import (
     extract_youtube_content,
     store_concepts_for_item,
 )
+from app.services.folders import validate_folder_ownership
 from app.services.gemini_client import embed_texts, generate_title, transcribe_audio
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,7 @@ async def _finish_saving_item(
     timezone: str | None,
     daily_limit: int,
     extracted_data: dict | None = None,
+    folder_id: uuid.UUID | None = None,
 ) -> Item:
     """The shared tail end of saving any item, regardless of where its text
     came from (typed, scraped, transcribed, or extracted from a document):
@@ -75,6 +78,9 @@ async def _finish_saving_item(
     if today_count is not None and today_count >= daily_limit:
         raise DailyLimitExceeded(f"Daily save limit of {daily_limit} reached.")
 
+    if folder_id is not None:
+        await validate_folder_ownership(session, user_id, folder_id)
+
     item = Item(
         user_id=user_id,
         source_type=source_type,
@@ -82,6 +88,7 @@ async def _finish_saving_item(
         title=title,
         raw_text=text,
         extracted_data=extracted_data,
+        folder_id=folder_id,
     )
     session.add(item)
     await session.flush()  # populates item.id without committing yet
@@ -172,6 +179,7 @@ async def save_item(
         request.timezone,
         daily_limit,
         extracted_data=extracted_data,
+        folder_id=request.folder_id,
     )
 
 
@@ -182,6 +190,7 @@ async def save_audio_item(
     mime_type: str,
     timezone: str | None,
     daily_limit: int,
+    folder_id: uuid.UUID | None = None,
 ) -> Item:
     """Transcribe a recording (live-captured or an uploaded audio file --
     to the backend, both are just audio bytes) and save it the same way
@@ -189,7 +198,9 @@ async def save_audio_item(
     """
     transcript = transcribe_audio(audio_bytes, mime_type)
     title = generate_title(transcript)
-    return await _finish_saving_item(session, user_id, "audio", None, title, transcript, timezone, daily_limit)
+    return await _finish_saving_item(
+        session, user_id, "audio", None, title, transcript, timezone, daily_limit, folder_id=folder_id
+    )
 
 
 async def save_document_item(
@@ -199,6 +210,7 @@ async def save_document_item(
     mime_type: str,
     timezone: str | None,
     daily_limit: int,
+    folder_id: uuid.UUID | None = None,
 ) -> Item:
     """Extract a document or photo -- a research paper, a receipt, a form,
     whatever it turns out to be -- and save it the same way as any other
@@ -222,4 +234,5 @@ async def save_document_item(
         timezone,
         daily_limit,
         extracted_data=extracted_data,
+        folder_id=folder_id,
     )

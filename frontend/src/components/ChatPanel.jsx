@@ -1,6 +1,6 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { askQuestion, transcribeAudio } from '../lib/api'
+import { askQuestion, getChatHistory, transcribeAudio } from '../lib/api'
 import { useAudioRecorder } from '../hooks/useAudioRecorder'
 
 function formatDuration(totalSeconds) {
@@ -20,8 +20,9 @@ function MicIcon() {
   )
 }
 
-const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef }, ref) {
+const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId = null, activeFolderName }, ref) {
   const [messages, setMessages] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(true)
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
@@ -32,6 +33,24 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef }, ref) {
     focusQuestionInput: () => questionInputRef.current?.focus(),
   }))
 
+  useEffect(() => {
+    let cancelled = false
+    setHistoryLoading(true)
+    getChatHistory(activeFolderId)
+      .then((history) => {
+        if (!cancelled) setMessages(history)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeFolderId])
+
   async function ask(trimmed) {
     setMessages((prev) => [...prev, { role: 'user', text: trimmed }])
     setQuestion('')
@@ -39,7 +58,7 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef }, ref) {
     setError(null)
 
     try {
-      const response = await askQuestion(trimmed)
+      const response = await askQuestion(trimmed, activeFolderId)
       setMessages((prev) => [
         ...prev,
         { role: 'answer', text: response.answer, image: response.image, sources: response.sources },
@@ -81,11 +100,16 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef }, ref) {
 
   return (
     <div className="middle-panel">
-      <div className="header wordmark">Ask your mind</div>
+      <div className="header wordmark">{activeFolderName ? `Ask ${activeFolderName}` : 'Ask your mind'}</div>
 
       <div className="chat">
-        {messages.length === 0 && (
-          <p className="panel-hint dark">Ask a question about anything you've saved.</p>
+        {historyLoading && <p className="panel-hint dark">Loading&hellip;</p>}
+        {!historyLoading && messages.length === 0 && (
+          <p className="panel-hint dark">
+            {activeFolderName
+              ? `Ask a question about what's filed in "${activeFolderName}".`
+              : "Ask a question about anything you've saved."}
+          </p>
         )}
         {messages.map((message, index) => (
           <div className={`bubble ${message.role === 'user' ? 'user' : 'answer'}`} key={index}>
@@ -131,7 +155,9 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef }, ref) {
           <div className="chat-row">
             <input
               className="chat-input"
-              placeholder="Ask a question about what you've saved&hellip;"
+              placeholder={
+                activeFolderName ? `Ask about "${activeFolderName}"…` : "Ask a question about what you've saved…"
+              }
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               disabled={busy}

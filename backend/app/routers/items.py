@@ -13,17 +13,22 @@ from app.auth import get_current_user_id
 from app.config import get_settings
 from app.database import get_db_for_request
 from app.models.schemas import (
+    ChatMessageOut,
     ChatRequest,
     ChatResponse,
+    CreateFolderRequest,
+    FolderSummary,
     ItemSummary,
     ItemWithConcepts,
     SaveItemRequest,
     TranscriptionResponse,
+    UpdateItemFolderRequest,
 )
+from app.services.folders import FolderNotFound, create_folder, delete_folder, list_folders
 from app.services.gemini_client import transcribe_audio
 from app.services.ingestion import DailyLimitExceeded, save_audio_item, save_document_item, save_item
-from app.services.items import delete_item, list_items
-from app.services.retrieval import answer_question
+from app.services.items import delete_item, list_items, update_item_folder
+from app.services.retrieval import answer_question, get_chat_history
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -54,12 +59,15 @@ async def create_item(
         item = await save_item(session, user_id, body, settings.max_items_per_user_per_day)
     except DailyLimitExceeded as exc:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+    except FolderNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     return ItemSummary(
         id=item.id,
         source_type=item.source_type,
         source_url=item.source_url,
         title=item.title,
+        folder_id=item.folder_id,
         created_at=item.created_at,
     )
 
@@ -70,6 +78,7 @@ async def upload_audio_item(
     request: Request,
     file: UploadFile = File(...),
     timezone: str | None = Form(default=None),
+    folder_id: uuid.UUID | None = Form(default=None),
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_for_request),
 ) -> ItemSummary:
@@ -88,10 +97,12 @@ async def upload_audio_item(
 
     try:
         item = await save_audio_item(
-            session, user_id, audio_bytes, mime_type, timezone, settings.max_items_per_user_per_day
+            session, user_id, audio_bytes, mime_type, timezone, settings.max_items_per_user_per_day, folder_id
         )
     except DailyLimitExceeded as exc:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+    except FolderNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except Exception as exc:
         # Broad and deliberate, same reasoning as the chat endpoint --
         # transcription failures shouldn't surface as a raw 500.
@@ -106,6 +117,7 @@ async def upload_audio_item(
         source_type=item.source_type,
         source_url=item.source_url,
         title=item.title,
+        folder_id=item.folder_id,
         created_at=item.created_at,
     )
 
@@ -116,6 +128,7 @@ async def upload_document_item(
     request: Request,
     file: UploadFile = File(...),
     timezone: str | None = Form(default=None),
+    folder_id: uuid.UUID | None = Form(default=None),
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_for_request),
 ) -> ItemSummary:
@@ -139,10 +152,12 @@ async def upload_document_item(
 
     try:
         item = await save_document_item(
-            session, user_id, file_bytes, mime_type, timezone, settings.max_items_per_user_per_day
+            session, user_id, file_bytes, mime_type, timezone, settings.max_items_per_user_per_day, folder_id
         )
     except DailyLimitExceeded as exc:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+    except FolderNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Document extraction failed for user %s", user_id)
         raise HTTPException(
@@ -155,6 +170,7 @@ async def upload_document_item(
         source_type=item.source_type,
         source_url=item.source_url,
         title=item.title,
+        folder_id=item.folder_id,
         created_at=item.created_at,
     )
 
@@ -192,10 +208,14 @@ async def transcribe(
 
 @router.get("/items", response_model=list[ItemWithConcepts])
 async def read_items(
+    folder_id: uuid.UUID | None = None,
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_for_request),
 ) -> list[ItemWithConcepts]:
-    return await list_items(session, user_id)
+    """All items regardless of folder if folder_id is omitted (the main
+    list), or just that folder's items if given.
+    """
+    return await list_items(session, user_id, folder_id=folder_id)
 
 
 @router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -209,6 +229,72 @@ async def remove_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
 
 
+@router.patch("/items/{item_id}/folder", response_model=ItemSummary)
+async def move_item(
+    item_id: uuid.UUID,
+    body: UpdateItemFolderRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> ItemSummary:
+    """File an item into a folder, or back to the main list (folder_id: null)."""
+    try:
+        item = await update_item_folder(session, user_id, item_id, body.folder_id)
+    except FolderNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+
+    return ItemSummary(
+        id=item.id,
+        source_type=item.source_type,
+        source_url=item.source_url,
+        title=item.title,
+        folder_id=item.folder_id,
+        created_at=item.created_at,
+    )
+
+
+@router.post("/folders", response_model=FolderSummary, status_code=status.HTTP_201_CREATED)
+async def create_folder_route(
+    body: CreateFolderRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> FolderSummary:
+    folder = await create_folder(session, user_id, body.name)
+    return FolderSummary(id=folder.id, name=folder.name, item_count=0, created_at=folder.created_at)
+
+
+@router.get("/folders", response_model=list[FolderSummary])
+async def read_folders(
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> list[FolderSummary]:
+    return await list_folders(session, user_id)
+
+
+@router.delete("/folders/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_folder(
+    folder_id: uuid.UUID,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> None:
+    """Delete a folder and everything filed in it."""
+    deleted = await delete_folder(session, user_id, folder_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found.")
+
+
+@router.get("/chat/messages", response_model=list[ChatMessageOut])
+async def read_chat_messages(
+    folder_id: uuid.UUID | None = None,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> list[ChatMessageOut]:
+    """The persisted thread for the global chat (folder_id omitted) or one folder."""
+    return await get_chat_history(session, user_id, folder_id)
+
+
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("30/minute")
 async def chat(
@@ -218,7 +304,9 @@ async def chat(
     session: AsyncSession = Depends(get_db_for_request),
 ) -> ChatResponse:
     try:
-        answer, sources, image_bytes, image_mime_type = await answer_question(session, user_id, body.question)
+        answer, sources, image_bytes, image_mime_type = await answer_question(
+            session, user_id, body.question, body.folder_id
+        )
     except Exception as exc:
         # Catching broadly and deliberately: the Gemini SDK's specific
         # exception classes live in a private module we shouldn't depend
