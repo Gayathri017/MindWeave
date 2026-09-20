@@ -1,7 +1,9 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { askQuestion, getChatHistory, transcribeAudio } from '../lib/api'
+import { askAboutImage, askQuestion, getChatHistory, transcribeAudio } from '../lib/api'
 import { useAudioRecorder } from '../hooks/useAudioRecorder'
+
+const DEFAULT_IMAGE_QUESTION = "What's in this image?"
 
 function formatDuration(totalSeconds) {
   const minutes = Math.floor(totalSeconds / 60)
@@ -20,6 +22,16 @@ function MicIcon() {
   )
 }
 
+function ImageIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="M21 15l-5-5L5 21" />
+    </svg>
+  )
+}
+
 const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId = null, activeFolderName }, ref) {
   const [messages, setMessages] = useState([])
   const [historyLoading, setHistoryLoading] = useState(true)
@@ -27,7 +39,10 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
   const [asking, setAsking] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [error, setError] = useState(null)
+  const [attachedImage, setAttachedImage] = useState(null)
+  const [attachedImagePreview, setAttachedImagePreview] = useState(null)
   const questionInputRef = useRef(null)
+  const imageInputRef = useRef(null)
 
   useImperativeHandle(ref, () => ({
     focusQuestionInput: () => questionInputRef.current?.focus(),
@@ -77,11 +92,49 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
     }
   }
 
+  async function askAboutAttachedImage(imageFile, trimmed) {
+    const questionText = trimmed || DEFAULT_IMAGE_QUESTION
+    setMessages((prev) => [...prev, { role: 'user', text: questionText, image: attachedImagePreview }])
+    setQuestion('')
+    clearAttachedImage()
+    setAsking(true)
+    setError(null)
+
+    try {
+      const response = await askAboutImage(imageFile, questionText, activeFolderId)
+      setMessages((prev) => [...prev, { role: 'answer', text: response.answer, from_notes: response.from_notes }])
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setAsking(false)
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
+    if (asking) return
     const trimmed = question.trim()
-    if (!trimmed || asking) return
+
+    if (attachedImage) {
+      await askAboutAttachedImage(attachedImage, trimmed)
+      return
+    }
+
+    if (!trimmed) return
     await ask(trimmed)
+  }
+
+  function handleImageSelected(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setAttachedImage(file)
+    setAttachedImagePreview(URL.createObjectURL(file))
+  }
+
+  function clearAttachedImage() {
+    setAttachedImage(null)
+    setAttachedImagePreview(null)
   }
 
   async function handleVoiceQuestion(audioBlob) {
@@ -169,6 +222,21 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
       <form className="chat-form" onSubmit={handleSubmit}>
         {error && <p className="error dark">{error}</p>}
 
+        {attachedImagePreview && (
+          <div className="attached-image-preview">
+            <img src={attachedImagePreview} alt="Attached" />
+            <button
+              type="button"
+              className="attached-image-remove"
+              onClick={clearAttachedImage}
+              aria-label="Remove attached image"
+              title="Remove attached image"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
         {recorder.isRecording ? (
           <div className="chat-recording-bar">
             <span className="recording-dot" />
@@ -182,13 +250,27 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
             <input
               className="chat-input"
               placeholder={
-                activeFolderName ? `Ask about "${activeFolderName}"…` : "Ask a question about what you've saved…"
+                attachedImage
+                  ? "Ask something about this image…"
+                  : activeFolderName
+                    ? `Ask about "${activeFolderName}"…`
+                    : "Ask a question about what you've saved…"
               }
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               disabled={busy}
               ref={questionInputRef}
             />
+            <button
+              type="button"
+              className="chat-mic-button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={busy}
+              aria-label="Attach an image"
+              title="Attach an image"
+            >
+              <ImageIcon />
+            </button>
             <button
               type="button"
               className="chat-mic-button"
@@ -201,6 +283,14 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
             </button>
           </div>
         )}
+
+        <input
+          type="file"
+          accept="image/*"
+          ref={imageInputRef}
+          onChange={handleImageSelected}
+          style={{ display: 'none' }}
+        />
       </form>
     </div>
   )

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import ChatMessage, Chunk, Item
 from app.models.schemas import ChatMessageOut, ChatSource, WebSource
-from app.services.gemini_client import embed_text, generate_image, generate_structured
+from app.services.gemini_client import embed_text, generate_image, generate_structured, generate_text_from_file
 from app.services.web_search import search_web
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,13 @@ _GENERAL_KNOWLEDGE_FALLBACK_INSTRUCTION = (
     "help this answer (see the general rule: only for something worth "
     "drawing or diagramming, not most questions). If so, set image_prompt "
     "accordingly; otherwise leave it null."
+)
+
+_IMAGE_CHAT_SYSTEM_INSTRUCTION = (
+    "You are Mindweave's assistant. The user has attached an image and "
+    "asked a question about it directly -- answer conversationally, "
+    "looking at the actual image content. This isn't about their saved "
+    "notes, so don't reference them."
 )
 
 # Cast a wide net (cheap -- just a vector index scan) so the chat call
@@ -216,6 +223,25 @@ async def get_chat_history(
         )
         for row in rows
     ]
+
+
+async def answer_question_about_image(
+    session: AsyncSession,
+    user_id: str,
+    folder_id: uuid.UUID | None,
+    image_bytes: bytes,
+    mime_type: str,
+    question: str,
+) -> AnswerResult:
+    """Answer a question about an image attached directly to the chat --
+    not saved as an item, not retrieved from anything, just Gemini looking
+    at the picture and answering. Persisted like any other turn so it
+    still shows up in this scope's history.
+    """
+    answer = generate_text_from_file(image_bytes, mime_type, question, system_instruction=_IMAGE_CHAT_SYSTEM_INSTRUCTION)
+    result = AnswerResult(answer=answer, from_notes=False)
+    await _save_turn(session, user_id, folder_id, question, result)
+    return result
 
 
 async def answer_question(session: AsyncSession, user_id: str, question: str, folder_id: uuid.UUID | None = None) -> AnswerResult:

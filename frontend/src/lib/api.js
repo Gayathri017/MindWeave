@@ -93,6 +93,14 @@ export function getChatHistory(folderId = null) {
   return authorizedFetch(withFolderQuery('/api/chat/messages', folderId))
 }
 
+export function askAboutImage(file, question, folderId = null) {
+  const formData = new FormData()
+  formData.append('file', file, file.name)
+  formData.append('question', question)
+  if (folderId) formData.append('folder_id', folderId)
+  return authorizedUpload('/api/chat/image', formData)
+}
+
 export function getGraph() {
   return authorizedFetch('/api/graph')
 }

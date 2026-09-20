@@ -92,6 +92,33 @@ def generate_structured_from_file(
     return schema.model_validate_json(interaction.output_text)
 
 
+def generate_text_from_file(
+    file_bytes: bytes,
+    mime_type: str,
+    question: str,
+    system_instruction: str | None = None,
+) -> str:
+    """Like `generate_structured_from_file`, but for a plain conversational
+    answer rather than a schema-validated extraction -- used for "here's a
+    picture, answer this question about it" chat, not saving structured
+    data. Same document-vs-image content-type distinction applies.
+    """
+    file_stream = io.BytesIO(file_bytes)
+    uploaded_file = _client.files.upload(file=file_stream, config={"mime_type": mime_type})
+
+    content_type = "document" if mime_type == "application/pdf" else "image"
+    interaction = _client.interactions.create(
+        model=settings.gemini_chat_model,
+        input=[
+            {"type": "text", "text": question},
+            {"type": content_type, "uri": uploaded_file.uri, "mime_type": uploaded_file.mime_type},
+        ],
+        system_instruction=system_instruction,
+        store=False,
+    )
+    return interaction.output_text
+
+
 def generate_structured_from_video_url(
     video_url: str,
     schema: type[_SchemaT],

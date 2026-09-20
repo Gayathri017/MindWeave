@@ -32,7 +32,7 @@ from app.services.gemini_client import transcribe_audio
 from app.services.ingestion import save_audio_item, save_document_item, save_item
 from app.services.items import delete_item, get_item, list_items, update_item_folder
 from app.services.limits import DailyLimitExceeded, enforce_daily_limit
-from app.services.retrieval import answer_question, get_chat_history
+from app.services.retrieval import answer_question, answer_question_about_image, get_chat_history
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -65,6 +65,14 @@ _ALLOWED_AUDIO_MIME_TYPES = {
     "audio/x-m4a",
     "audio/flac",
     "audio/aac",
+}
+_MAX_CHAT_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB -- plenty for a photo
+_ALLOWED_CHAT_IMAGE_MIME_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/heic",
+    "image/heif",
 }
 
 
@@ -356,6 +364,58 @@ async def read_chat_messages(
 ) -> list[ChatMessageOut]:
     """The persisted thread for the global chat (folder_id omitted) or one folder."""
     return await get_chat_history(session, user_id, folder_id)
+
+
+@router.post("/chat/image", response_model=ChatResponse)
+@limiter.limit("15/minute")
+async def chat_about_image(
+    request: Request,
+    file: UploadFile = File(...),
+    question: str = Form(default="What's in this image?"),
+    folder_id: uuid.UUID | None = Form(default=None),
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> ChatResponse:
+    """Ask a question about an image attached directly to the chat --
+    answered on the spot from the image itself, not saved as an item and
+    not drawn from the user's saved knowledge.
+    """
+    mime_type = file.content_type or "application/octet-stream"
+    if mime_type not in _ALLOWED_CHAT_IMAGE_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported image type. Please attach a JPEG, PNG, WEBP, or HEIC image.",
+        )
+
+    image_bytes = await file.read()
+    if len(image_bytes) > _MAX_CHAT_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Image is too large (max {_MAX_CHAT_IMAGE_BYTES // (1024 * 1024)} MB).",
+        )
+
+    try:
+        await enforce_daily_limit(
+            session,
+            ChatMessage,
+            (ChatMessage.user_id == user_id) & (ChatMessage.role == "user"),
+            settings.max_chat_messages_per_user_per_day,
+            settings.max_chat_messages_per_day_global,
+            "question",
+        )
+    except DailyLimitExceeded as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+
+    try:
+        result = await answer_question_about_image(session, user_id, folder_id, image_bytes, mime_type, question)
+    except Exception as exc:
+        logger.exception("Image chat failed for user %s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not read that image. Please try again in a few seconds.",
+        ) from exc
+
+    return ChatResponse(answer=result.answer, from_notes=result.from_notes)
 
 
 @router.post("/chat", response_model=ChatResponse)
