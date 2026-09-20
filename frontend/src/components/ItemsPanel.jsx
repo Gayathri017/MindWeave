@@ -548,6 +548,8 @@ const ItemsPanel = forwardRef(function ItemsPanel(
 
   function handleDismissResurface() {
     if (!resurfacedItem) return
+    const confirmed = window.confirm('Dismiss this for today? It’ll come back tomorrow with a different item.')
+    if (!confirmed) return
     dismissResurfaceToday(resurfacedItem.id)
     setResurfaceDismissed(true)
   }

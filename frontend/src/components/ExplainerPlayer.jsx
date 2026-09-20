@@ -65,12 +65,19 @@ export default function ExplainerPlayer({ explainer, onClose }) {
     setIndex((current) => (current > 0 ? current - 1 : current))
   }
 
+  function handleClose() {
+    const confirmed = window.confirm(
+      'Close this explainer? Reopening it means generating a new one from scratch (up to 11 AI calls), not replaying this one.'
+    )
+    if (confirmed) onClose()
+  }
+
   return (
-    <div className="explainer-overlay" onMouseDown={onClose}>
+    <div className="explainer-overlay" onMouseDown={handleClose}>
       <div className="explainer-player" onMouseDown={(event) => event.stopPropagation()}>
         <div className="explainer-header">
           <span className="explainer-title">{explainer.title}</span>
-          <button type="button" className="delete-button" onClick={onClose} aria-label="Close">
+          <button type="button" className="delete-button" onClick={handleClose} aria-label="Close">
             &times;
           </button>
         </div>
