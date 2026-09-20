@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_user_id
 from app.config import get_settings
 from app.database import get_db_for_request
+from app.models.orm import ChatMessage
 from app.models.schemas import (
     ChatMessageOut,
     ChatRequest,
@@ -28,8 +29,9 @@ from app.models.schemas import (
 from app.services.explainer import build_explainer
 from app.services.folders import FolderNotFound, create_folder, delete_folder, list_folders
 from app.services.gemini_client import transcribe_audio
-from app.services.ingestion import DailyLimitExceeded, save_audio_item, save_document_item, save_item
+from app.services.ingestion import save_audio_item, save_document_item, save_item
 from app.services.items import delete_item, get_item, list_items, update_item_folder
+from app.services.limits import DailyLimitExceeded, enforce_daily_limit
 from app.services.retrieval import answer_question, get_chat_history
 
 router = APIRouter()
@@ -47,6 +49,23 @@ _ALLOWED_DOCUMENT_MIME_TYPES = {
     "image/heic",
     "image/heif",
 }
+# Deliberately generous (covers what browsers actually record, plus common
+# uploaded-file formats) -- this exists to reject obviously-wrong uploads
+# (a renamed video, an arbitrary binary) before they burn a 100 MB upload
+# and a Gemini call, not to be maximally strict about audio codecs.
+_ALLOWED_AUDIO_MIME_TYPES = {
+    "audio/webm",
+    "audio/ogg",
+    "audio/mp3",
+    "audio/mpeg",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/m4a",
+    "audio/mp4",
+    "audio/x-m4a",
+    "audio/flac",
+    "audio/aac",
+}
 
 
 @router.post("/items", response_model=ItemSummary, status_code=status.HTTP_201_CREATED)
@@ -58,7 +77,9 @@ async def create_item(
     session: AsyncSession = Depends(get_db_for_request),
 ) -> ItemSummary:
     try:
-        item = await save_item(session, user_id, body, settings.max_items_per_user_per_day)
+        item = await save_item(
+            session, user_id, body, settings.max_items_per_user_per_day, settings.max_items_per_day_global
+        )
     except DailyLimitExceeded as exc:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
     except FolderNotFound as exc:
@@ -88,6 +109,13 @@ async def upload_audio_item(
     browser or picked from an existing file, both arrive here the same
     way -- transcribes it, and saves it through the normal pipeline.
     """
+    mime_type = file.content_type or "audio/webm"
+    if mime_type not in _ALLOWED_AUDIO_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported audio type. Please record or upload a common audio format (WebM, MP3, WAV, M4A, OGG, FLAC, AAC).",
+        )
+
     audio_bytes = await file.read()
     if len(audio_bytes) > _MAX_AUDIO_BYTES:
         raise HTTPException(
@@ -95,11 +123,10 @@ async def upload_audio_item(
             detail=f"Audio file is too large (max {_MAX_AUDIO_BYTES // (1024 * 1024)} MB).",
         )
 
-    mime_type = file.content_type or "audio/webm"
-
     try:
         item = await save_audio_item(
-            session, user_id, audio_bytes, mime_type, timezone, settings.max_items_per_user_per_day, folder_id
+            session, user_id, audio_bytes, mime_type, timezone,
+            settings.max_items_per_user_per_day, settings.max_items_per_day_global, folder_id,
         )
     except DailyLimitExceeded as exc:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
@@ -154,7 +181,8 @@ async def upload_document_item(
 
     try:
         item = await save_document_item(
-            session, user_id, file_bytes, mime_type, timezone, settings.max_items_per_user_per_day, folder_id
+            session, user_id, file_bytes, mime_type, timezone,
+            settings.max_items_per_user_per_day, settings.max_items_per_day_global, folder_id,
         )
     except DailyLimitExceeded as exc:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
@@ -187,14 +215,19 @@ async def transcribe(
     """Transcribe a short recording without saving it as an item -- used
     for asking a chat question by voice instead of typing it.
     """
+    mime_type = file.content_type or "audio/webm"
+    if mime_type not in _ALLOWED_AUDIO_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported audio type. Please record or upload a common audio format (WebM, MP3, WAV, M4A, OGG, FLAC, AAC).",
+        )
+
     audio_bytes = await file.read()
     if len(audio_bytes) > _MAX_AUDIO_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"Audio file is too large (max {_MAX_AUDIO_BYTES // (1024 * 1024)} MB).",
         )
-
-    mime_type = file.content_type or "audio/webm"
 
     try:
         text = transcribe_audio(audio_bytes, mime_type)
@@ -333,6 +366,18 @@ async def chat(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_for_request),
 ) -> ChatResponse:
+    try:
+        await enforce_daily_limit(
+            session,
+            ChatMessage,
+            (ChatMessage.user_id == user_id) & (ChatMessage.role == "user"),
+            settings.max_chat_messages_per_user_per_day,
+            settings.max_chat_messages_per_day_global,
+            "question",
+        )
+    except DailyLimitExceeded as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+
     try:
         answer, sources, image_bytes, image_mime_type = await answer_question(
             session, user_id, body.question, body.folder_id

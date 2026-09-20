@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     max_items_per_user_per_day: int = 50
     max_chat_messages_per_user_per_day: int = 100
 
+    # App-wide ceilings, across every account combined -- the backstop
+    # that protects the whole Gemini budget/quota for the day even if
+    # every single user stays comfortably under their own per-user cap.
+    # Defaults are deliberately generous for a small number of real users;
+    # tune down via env vars if running on a tight Gemini quota/budget.
+    max_items_per_day_global: int = 300
+    max_chat_messages_per_day_global: int = 600
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

@@ -116,6 +116,51 @@ how and why. The result is that even a bug in application code that
 forgot to filter a query by user id still could not leak another user's
 data -- the database itself refuses.
 
+## Deploying safely
+
+A few things that matter once this is reachable by real users on the
+internet, not just `localhost`:
+
+- **`--proxy-headers` is required behind any reverse proxy** (Render,
+  Fly, nginx, etc). Rate limiting (`slowapi`) keys off the caller's IP
+  address via `request.client.host`. Behind a reverse proxy, that's the
+  *proxy's* IP for every single request unless the proxy's real-IP
+  headers are trusted -- which would mean every user shares one rate
+  limit bucket, so one active user could lock everyone else out. Start
+  uvicorn with:
+
+  ```bash
+  uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+  ```
+
+  `--forwarded-allow-ips='*'` is safe specifically because a PaaS like
+  Render guarantees its own edge proxy is the only thing that can reach
+  your app's port directly -- there's no path for an external client to
+  forge these headers themselves.
+
+- **Set `CORS_ORIGINS` to your real deployed frontend URL(s)**, comma
+  separated if there's more than one (e.g. a Vercel preview URL plus
+  your production domain). The default (`http://localhost:5173`) only
+  works for local development.
+
+- **Set `ENVIRONMENT=production`** -- turns off SQL echo logging
+  (`app/database.py`'s engine is configured with `echo=not
+  settings.is_production`), which would otherwise print every query
+  (including auth-related ones) to your production logs.
+
+- **Daily usage caps exist at two levels**, both configurable via env
+  vars if you're on a tight Gemini quota/budget: `MAX_ITEMS_PER_USER_PER_DAY`
+  / `MAX_CHAT_MESSAGES_PER_USER_PER_DAY` cap what any one account can do
+  in a day, and `MAX_ITEMS_PER_DAY_GLOBAL` / `MAX_CHAT_MESSAGES_PER_DAY_GLOBAL`
+  cap the whole app, across every account combined, from exceeding what
+  your actual Gemini plan allows in a day even if no single user looks
+  abusive on their own. See `app/config.py` for current defaults.
+
+- **File uploads are restricted by type and size** (`_ALLOWED_AUDIO_MIME_TYPES`,
+  `_ALLOWED_DOCUMENT_MIME_TYPES`, `_MAX_AUDIO_BYTES`, `_MAX_DOCUMENT_BYTES`
+  in `app/routers/items.py`) specifically so an arbitrary or oversized
+  file can't burn a Gemini call and bandwidth before being rejected.
+
 ## API
 
 - `POST /api/items` -- save a URL or note

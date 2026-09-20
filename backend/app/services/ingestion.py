@@ -6,7 +6,6 @@ import uuid
 
 import httpx
 from bs4 import BeautifulSoup
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import Chunk, Item
@@ -22,15 +21,11 @@ from app.services.extraction import (
 )
 from app.services.folders import validate_folder_ownership
 from app.services.gemini_client import embed_texts, generate_title, transcribe_audio
+from app.services.limits import DailyLimitExceeded, enforce_daily_limit
 
 logger = logging.getLogger(__name__)
 
 _YOUTUBE_URL_PATTERN = re.compile(r"^https?://(www\.|m\.)?(youtube\.com/(watch|shorts/)|youtu\.be/)", re.IGNORECASE)
-
-
-class DailyLimitExceeded(Exception):
-    """Raised when a user has hit their daily save limit -- this is the cost
-    ceiling that protects the API budget from a busy (not malicious) user."""
 
 
 async def _extract_text_from_url(url: str) -> tuple[str, str | None]:
@@ -61,22 +56,16 @@ async def _finish_saving_item(
     text: str,
     timezone: str | None,
     daily_limit: int,
+    global_daily_limit: int,
     extracted_data: dict | None = None,
     folder_id: uuid.UUID | None = None,
 ) -> Item:
     """The shared tail end of saving any item, regardless of where its text
     came from (typed, scraped, transcribed, or extracted from a document):
-    enforce the daily cap, store the item, resolve dates, chunk, embed, and
-    extract concepts.
+    enforce the daily caps (per-user and app-wide), store the item, resolve
+    dates, chunk, embed, and extract concepts.
     """
-    today_count = await session.scalar(
-        select(func.count()).select_from(Item).where(
-            Item.user_id == user_id,
-            Item.created_at >= func.date_trunc("day", func.now()),
-        )
-    )
-    if today_count is not None and today_count >= daily_limit:
-        raise DailyLimitExceeded(f"Daily save limit of {daily_limit} reached.")
+    await enforce_daily_limit(session, Item, Item.user_id == user_id, daily_limit, global_daily_limit, "save")
 
     if folder_id is not None:
         await validate_folder_ownership(session, user_id, folder_id)
@@ -157,6 +146,7 @@ async def save_item(
     user_id: str,
     request: SaveItemRequest,
     daily_limit: int,
+    global_daily_limit: int,
 ) -> Item:
     """Save a typed note or a URL."""
     extracted_data = None
@@ -178,6 +168,7 @@ async def save_item(
         text,
         request.timezone,
         daily_limit,
+        global_daily_limit,
         extracted_data=extracted_data,
         folder_id=request.folder_id,
     )
@@ -190,6 +181,7 @@ async def save_audio_item(
     mime_type: str,
     timezone: str | None,
     daily_limit: int,
+    global_daily_limit: int,
     folder_id: uuid.UUID | None = None,
 ) -> Item:
     """Transcribe a recording (live-captured or an uploaded audio file --
@@ -199,7 +191,8 @@ async def save_audio_item(
     transcript = transcribe_audio(audio_bytes, mime_type)
     title = generate_title(transcript)
     return await _finish_saving_item(
-        session, user_id, "audio", None, title, transcript, timezone, daily_limit, folder_id=folder_id
+        session, user_id, "audio", None, title, transcript, timezone, daily_limit, global_daily_limit,
+        folder_id=folder_id,
     )
 
 
@@ -210,6 +203,7 @@ async def save_document_item(
     mime_type: str,
     timezone: str | None,
     daily_limit: int,
+    global_daily_limit: int,
     folder_id: uuid.UUID | None = None,
 ) -> Item:
     """Extract a document or photo -- a research paper, a receipt, a form,
@@ -233,6 +227,7 @@ async def save_document_item(
         extraction.full_text,
         timezone,
         daily_limit,
+        global_daily_limit,
         extracted_data=extracted_data,
         folder_id=folder_id,
     )
