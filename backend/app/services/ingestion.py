@@ -1,5 +1,6 @@
 """Orchestrates turning a saved URL, note, or audio recording into searchable, embedded chunks."""
 
+import asyncio
 import logging
 import re
 import uuid
@@ -22,10 +23,12 @@ from app.services.extraction import (
 from app.services.folders import validate_folder_ownership
 from app.services.gemini_client import embed_texts, generate_title, transcribe_audio
 from app.services.limits import DailyLimitExceeded, enforce_daily_limit
+from app.services.url_safety import ensure_public_url
 
 logger = logging.getLogger(__name__)
 
 _YOUTUBE_URL_PATTERN = re.compile(r"^https?://(www\.|m\.)?(youtube\.com/(watch|shorts/)|youtu\.be/)", re.IGNORECASE)
+_MAX_REDIRECTS = 5
 
 
 async def _extract_text_from_url(url: str) -> tuple[str, str | None]:
@@ -33,10 +36,24 @@ async def _extract_text_from_url(url: str) -> tuple[str, str | None]:
 
     Deliberately simple: strips scripts/styles and returns visible text.
     Good enough for articles and blog posts; not a general-purpose scraper.
+
+    Redirects are followed manually (not via httpx's follow_redirects)
+    specifically so every hop gets its own SSRF check -- a URL that looks
+    external at the start can still redirect to an internal address, and
+    only checking the first URL would miss that entirely.
     """
-    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-        response = await client.get(url, headers={"User-Agent": "MindweaveBot/0.1"})
-        response.raise_for_status()
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+        current_url = url
+        for _ in range(_MAX_REDIRECTS + 1):
+            await ensure_public_url(current_url)
+            response = await client.get(current_url, headers={"User-Agent": "MindweaveBot/0.1"})
+            if response.is_redirect:
+                current_url = str(response.next_request.url)
+                continue
+            response.raise_for_status()
+            break
+        else:
+            raise httpx.TooManyRedirects(f"Exceeded {_MAX_REDIRECTS} redirects fetching {url}")
 
     soup = BeautifulSoup(response.text, "html.parser")
     for tag in soup(["script", "style", "nav", "footer", "header"]):
@@ -97,18 +114,21 @@ async def _finish_saving_item(
     if source_type in ("text", "audio"):
         try:
             reference_date = resolve_today(timezone)
-            text_for_retrieval, concept_names = enrich_note(text, reference_date)
+            text_for_retrieval, concept_names = await asyncio.to_thread(enrich_note, text, reference_date)
         except Exception:
             logger.exception("Enrichment failed for item %s; using original text, no concepts.", item.id)
     else:
         try:
-            concept_names = extract_concepts(text)
+            concept_names = await asyncio.to_thread(extract_concepts, text)
         except Exception:
             logger.exception("Concept extraction failed for item %s; item was still saved.", item.id)
 
     pieces = chunk_text(text_for_retrieval)
     if pieces:
-        vectors = embed_texts(pieces)
+        # embed_texts is a synchronous Gemini call -- run it off the event
+        # loop so one save doesn't block every other request the server is
+        # handling for the seconds it takes to come back.
+        vectors = await asyncio.to_thread(embed_texts, pieces)
         for content, vector in zip(pieces, vectors):
             session.add(Chunk(item_id=item.id, user_id=user_id, content=content, embedding=vector))
 
@@ -132,7 +152,7 @@ async def _extract_youtube_or_scrape(url: str) -> tuple[str, str | None, dict | 
     save outright.
     """
     try:
-        extraction = extract_youtube_content(url)
+        extraction = await asyncio.to_thread(extract_youtube_content, url)
         extracted_data = {"video_url": url, "key_points": extraction.key_points}
         return extraction.summary, extraction.title, extracted_data
     except Exception:
@@ -188,8 +208,8 @@ async def save_audio_item(
     to the backend, both are just audio bytes) and save it the same way
     as any other item.
     """
-    transcript = transcribe_audio(audio_bytes, mime_type)
-    title = generate_title(transcript)
+    transcript = await asyncio.to_thread(transcribe_audio, audio_bytes, mime_type)
+    title = await asyncio.to_thread(generate_title, transcript)
     return await _finish_saving_item(
         session, user_id, "audio", None, title, transcript, timezone, daily_limit, global_daily_limit,
         folder_id=folder_id,
@@ -210,8 +230,8 @@ async def save_document_item(
     whatever it turns out to be -- and save it the same way as any other
     item, with the structured fields it found alongside the plain text.
     """
-    extraction = extract_document_content(file_bytes, mime_type)
-    title = extraction.key_fields.get("title") or generate_title(extraction.full_text)
+    extraction = await asyncio.to_thread(extract_document_content, file_bytes, mime_type)
+    title = extraction.key_fields.get("title") or await asyncio.to_thread(generate_title, extraction.full_text)
     extracted_data = {
         "document_type": extraction.document_type,
         "key_fields": extraction.key_fields,

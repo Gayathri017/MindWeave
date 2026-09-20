@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SaveItemRequest(BaseModel):
@@ -75,6 +75,17 @@ class WebSource(BaseModel):
     """The excerpt Tavily returned, kept only long enough to build the
     citation prompt -- excluded from every response/persisted payload so
     it never bloats the API response or the stored chat history."""
+
+    @field_validator("url")
+    @classmethod
+    def _url_must_be_http(cls, value: str) -> str:
+        # Defense in depth: this is rendered as a clickable <a href> in the
+        # frontend, so a non-http(s) scheme (e.g. javascript:) sneaking in
+        # here -- from a compromised/misbehaving search API, or a future
+        # bug -- would otherwise become an executable link, not just data.
+        if not value.lower().startswith(("http://", "https://")):
+            raise ValueError(f"Web source URL must be http(s), got: {value!r}")
+        return value
 
 
 class ChatResponse(BaseModel):

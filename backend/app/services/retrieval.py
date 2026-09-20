@@ -9,6 +9,7 @@ the fallback existing at all, so a user is never left thinking a general-
 knowledge answer was actually grounded in something they saved.
 """
 
+import asyncio
 import logging
 import uuid
 
@@ -238,7 +239,9 @@ async def answer_question_about_image(
     at the picture and answering. Persisted like any other turn so it
     still shows up in this scope's history.
     """
-    answer = generate_text_from_file(image_bytes, mime_type, question, system_instruction=_IMAGE_CHAT_SYSTEM_INSTRUCTION)
+    answer = await asyncio.to_thread(
+        generate_text_from_file, image_bytes, mime_type, question, system_instruction=_IMAGE_CHAT_SYSTEM_INSTRUCTION
+    )
     result = AnswerResult(answer=answer, from_notes=False)
     await _save_turn(session, user_id, folder_id, question, result)
     return result
@@ -251,7 +254,7 @@ async def answer_question(session: AsyncSession, user_id: str, question: str, fo
     when the saved items don't cover it, always disclosing that fallback
     plainly in the answer text itself.
     """
-    query_vector = embed_text(question)
+    query_vector = await asyncio.to_thread(embed_text, question)
 
     chunk_query = select(Chunk).where(Chunk.user_id == user_id)
     if folder_id is not None:
@@ -266,17 +269,17 @@ async def answer_question(session: AsyncSession, user_id: str, question: str, fo
         # Nothing saved at all (in this scope) to even check -- skip
         # straight to the fallback rather than spending a Gemini call
         # confirming what we already know.
-        answer_result = _answer_from_fallback(question, user_id)
+        answer_result = await asyncio.to_thread(_answer_from_fallback, question, user_id)
         await _save_turn(session, user_id, folder_id, question, answer_result)
         return answer_result
 
     context = "\n\n---\n\n".join(f"[{index}] {chunk.content}" for index, chunk in enumerate(matches, start=1))
     prompt = f"Saved excerpts:\n\n{context}\n\nQuestion: {question}"
 
-    result = generate_structured(prompt, _ChatAnswer, system_instruction=_SYSTEM_INSTRUCTION)
+    result = await asyncio.to_thread(generate_structured, prompt, _ChatAnswer, system_instruction=_SYSTEM_INSTRUCTION)
 
     if not result.notes_sufficient:
-        answer_result = _answer_from_fallback(result.web_search_query or question, user_id)
+        answer_result = await asyncio.to_thread(_answer_from_fallback, result.web_search_query or question, user_id)
         await _save_turn(session, user_id, folder_id, question, answer_result)
         return answer_result
 
@@ -292,7 +295,7 @@ async def answer_question(session: AsyncSession, user_id: str, question: str, fo
     source_items = (await session.execute(select(Item).where(Item.id.in_(source_item_ids)))).scalars().all()
     sources = [ChatSource(id=item.id, title=_display_title(item)) for item in source_items]
 
-    image_bytes, image_mime_type = _generate_image_safely(result.image_prompt, user_id)
+    image_bytes, image_mime_type = await asyncio.to_thread(_generate_image_safely, result.image_prompt, user_id)
 
     answer_result = AnswerResult(
         answer=result.answer or "",

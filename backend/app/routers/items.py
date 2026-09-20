@@ -1,9 +1,11 @@
 """HTTP routes for saving items and chatting with the user's saved knowledge."""
 
+import asyncio
 import base64
 import logging
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -27,12 +29,14 @@ from app.models.schemas import (
     UpdateItemFolderRequest,
 )
 from app.services.explainer import build_explainer
+from app.services.file_signatures import looks_like_claimed_type
 from app.services.folders import FolderNotFound, create_folder, delete_folder, list_folders
 from app.services.gemini_client import transcribe_audio
 from app.services.ingestion import save_audio_item, save_document_item, save_item
 from app.services.items import delete_item, get_item, list_items, update_item_folder
 from app.services.limits import DailyLimitExceeded, enforce_daily_limit
 from app.services.retrieval import answer_question, answer_question_about_image, get_chat_history
+from app.services.url_safety import UnsafeURLError
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -74,6 +78,33 @@ _ALLOWED_CHAT_IMAGE_MIME_TYPES = {
     "image/heic",
     "image/heif",
 }
+_READ_CHUNK_BYTES = 1024 * 1024  # 1 MB per chunk
+
+
+async def _read_upload_limited(file: UploadFile, max_bytes: int, error_detail: str) -> bytes:
+    """Read an upload in bounded chunks, aborting the moment it exceeds
+    max_bytes.
+
+    Plain `await file.read()` reads the entire body into memory before
+    any size check can run -- Content-Length can't be trusted to catch
+    this first (it can be absent, wrong, or the request can use chunked
+    transfer encoding), so a client that just keeps sending bytes would
+    force the server to buffer an unbounded amount of memory for a
+    request that was always going to be rejected. Reading in chunks and
+    checking as we go means memory use is capped at ~max_bytes regardless
+    of what the client actually sends.
+    """
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=error_detail)
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @router.post("/items", response_model=ItemSummary, status_code=status.HTTP_201_CREATED)
@@ -92,6 +123,12 @@ async def create_item(
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
     except FolderNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except UnsafeURLError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except (httpx.HTTPError, httpx.TooManyRedirects) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Could not fetch that URL. Check it's correct and try again."
+        ) from exc
 
     return ItemSummary(
         id=item.id,
@@ -124,12 +161,9 @@ async def upload_audio_item(
             detail="Unsupported audio type. Please record or upload a common audio format (WebM, MP3, WAV, M4A, OGG, FLAC, AAC).",
         )
 
-    audio_bytes = await file.read()
-    if len(audio_bytes) > _MAX_AUDIO_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Audio file is too large (max {_MAX_AUDIO_BYTES // (1024 * 1024)} MB).",
-        )
+    audio_bytes = await _read_upload_limited(
+        file, _MAX_AUDIO_BYTES, f"Audio file is too large (max {_MAX_AUDIO_BYTES // (1024 * 1024)} MB)."
+    )
 
     try:
         item = await save_audio_item(
@@ -180,11 +214,13 @@ async def upload_document_item(
             detail="Unsupported file type. Please upload a PDF or an image (JPEG, PNG, WEBP, HEIC).",
         )
 
-    file_bytes = await file.read()
-    if len(file_bytes) > _MAX_DOCUMENT_BYTES:
+    file_bytes = await _read_upload_limited(
+        file, _MAX_DOCUMENT_BYTES, f"File is too large (max {_MAX_DOCUMENT_BYTES // (1024 * 1024)} MB)."
+    )
+    if not looks_like_claimed_type(file_bytes, mime_type):
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File is too large (max {_MAX_DOCUMENT_BYTES // (1024 * 1024)} MB).",
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="This file's content doesn't match its claimed type. Please check the file and try again.",
         )
 
     try:
@@ -230,15 +266,12 @@ async def transcribe(
             detail="Unsupported audio type. Please record or upload a common audio format (WebM, MP3, WAV, M4A, OGG, FLAC, AAC).",
         )
 
-    audio_bytes = await file.read()
-    if len(audio_bytes) > _MAX_AUDIO_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Audio file is too large (max {_MAX_AUDIO_BYTES // (1024 * 1024)} MB).",
-        )
+    audio_bytes = await _read_upload_limited(
+        file, _MAX_AUDIO_BYTES, f"Audio file is too large (max {_MAX_AUDIO_BYTES // (1024 * 1024)} MB)."
+    )
 
     try:
-        text = transcribe_audio(audio_bytes, mime_type)
+        text = await asyncio.to_thread(transcribe_audio, audio_bytes, mime_type)
     except Exception as exc:
         logger.exception("Voice question transcription failed for user %s", user_id)
         raise HTTPException(
@@ -299,7 +332,7 @@ async def move_item(
 
 
 @router.post("/items/{item_id}/explain", response_model=ExplainerResponse)
-@limiter.limit("5/hour")
+@limiter.limit("5/hour;15/day")
 async def explain_item(
     request: Request,
     item_id: uuid.UUID,
@@ -317,7 +350,7 @@ async def explain_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
 
     try:
-        return build_explainer(item.raw_text)
+        return await asyncio.to_thread(build_explainer, item.raw_text)
     except Exception as exc:
         logger.exception("Explainer generation failed for item %s", item_id)
         raise HTTPException(
@@ -327,7 +360,9 @@ async def explain_item(
 
 
 @router.post("/folders", response_model=FolderSummary, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
 async def create_folder_route(
+    request: Request,
     body: CreateFolderRequest,
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_for_request),
@@ -387,11 +422,13 @@ async def chat_about_image(
             detail="Unsupported image type. Please attach a JPEG, PNG, WEBP, or HEIC image.",
         )
 
-    image_bytes = await file.read()
-    if len(image_bytes) > _MAX_CHAT_IMAGE_BYTES:
+    image_bytes = await _read_upload_limited(
+        file, _MAX_CHAT_IMAGE_BYTES, f"Image is too large (max {_MAX_CHAT_IMAGE_BYTES // (1024 * 1024)} MB)."
+    )
+    if not looks_like_claimed_type(image_bytes, mime_type):
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Image is too large (max {_MAX_CHAT_IMAGE_BYTES // (1024 * 1024)} MB).",
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="This file's content doesn't match its claimed type. Please check the file and try again.",
         )
 
     try:

@@ -45,7 +45,14 @@ def search_web(query: str, max_results: int = 5) -> list[WebSource]:
         logger.exception("Tavily web search failed for query %r; falling back to general knowledge.", query)
         return []
 
-    return [
-        WebSource(title=result.get("title") or result["url"], url=result["url"], content=result.get("content", ""))
-        for result in data.get("results", [])
-    ]
+    sources = []
+    for result in data.get("results", []):
+        try:
+            sources.append(
+                WebSource(title=result.get("title") or result["url"], url=result["url"], content=result.get("content", ""))
+            )
+        except Exception:
+            # One malformed result (e.g. a non-http URL) shouldn't sink the
+            # whole search -- just skip it and keep the rest.
+            logger.exception("Skipping one malformed Tavily result for query %r.", query)
+    return sources
