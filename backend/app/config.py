@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     gemini_tts_model: str = "gemini-3.1-flash-tts-preview"
     embedding_dimensions: int = 768
 
+    # Optional -- chat works fine without it (falls back to the model's own
+    # general knowledge for questions the saved notes don't cover). Set it
+    # to also ground those fallback answers in real, cited web results.
+    tavily_api_key: str | None = None
+
     environment: str = "development"
     cors_origins: str = "http://localhost:5173"
     # Fallback only, used when a save request doesn't include its own

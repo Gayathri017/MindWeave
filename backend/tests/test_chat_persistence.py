@@ -7,11 +7,13 @@ calls Gemini for the embedding and the answer, so it stays untested for
 the same reason extract_concepts is -- see test_chunking.py).
 """
 
+import uuid
+
 import pytest
 
-from app.models.schemas import ChatSource
+from app.models.schemas import ChatSource, WebSource
 from app.services.folders import create_folder
-from app.services.retrieval import _save_turn, get_chat_history
+from app.services.retrieval import AnswerResult, _save_turn, get_chat_history
 
 pytestmark = pytest.mark.asyncio
 
@@ -22,7 +24,7 @@ async def test_global_chat_history_starts_empty(db_session, user_id):
 
 
 async def test_save_turn_persists_question_and_answer_in_order(db_session, user_id):
-    await _save_turn(db_session, user_id, None, "What did I save about X?", "You saved a note about X.", [])
+    await _save_turn(db_session, user_id, None, "What did I save about X?", AnswerResult(answer="You saved a note about X."))
 
     history = await get_chat_history(db_session, user_id, folder_id=None)
     assert [message.role for message in history] == ["user", "answer"]
@@ -31,22 +33,41 @@ async def test_save_turn_persists_question_and_answer_in_order(db_session, user_
 
 
 async def test_save_turn_persists_sources_for_citation_chips(db_session, user_id):
-    source = ChatSource(id=__import__("uuid").uuid4(), title="My Paper")
-    await _save_turn(db_session, user_id, None, "question", "answer", [source])
+    source = ChatSource(id=uuid.uuid4(), title="My Paper")
+    await _save_turn(db_session, user_id, None, "question", AnswerResult(answer="answer", sources=[source]))
 
     history = await get_chat_history(db_session, user_id, folder_id=None)
     answer_message = history[1]
     assert len(answer_message.sources) == 1
     assert answer_message.sources[0].title == "My Paper"
     assert answer_message.sources[0].id == source.id
+    assert answer_message.from_notes is True
+
+
+async def test_save_turn_persists_web_sources_and_from_notes_flag(db_session, user_id):
+    web_source = WebSource(title="Some Article", url="https://example.com/article")
+    await _save_turn(
+        db_session,
+        user_id,
+        None,
+        "a question my notes don't cover",
+        AnswerResult(answer="Not in your notes, but here's what I know...", web_sources=[web_source], from_notes=False),
+    )
+
+    history = await get_chat_history(db_session, user_id, folder_id=None)
+    answer_message = history[1]
+    assert answer_message.from_notes is False
+    assert answer_message.sources == []
+    assert len(answer_message.web_sources) == 1
+    assert answer_message.web_sources[0].url == "https://example.com/article"
 
 
 async def test_folder_chat_is_isolated_from_global_chat(db_session, user_id):
     folder = await create_folder(db_session, user_id, "Research")
     await db_session.commit()
 
-    await _save_turn(db_session, user_id, None, "global question", "global answer", [])
-    await _save_turn(db_session, user_id, folder.id, "folder question", "folder answer", [])
+    await _save_turn(db_session, user_id, None, "global question", AnswerResult(answer="global answer"))
+    await _save_turn(db_session, user_id, folder.id, "folder question", AnswerResult(answer="folder answer"))
 
     global_history = await get_chat_history(db_session, user_id, folder_id=None)
     folder_history = await get_chat_history(db_session, user_id, folder_id=folder.id)
@@ -60,8 +81,8 @@ async def test_different_folders_have_independent_chat_threads(db_session, user_
     folder_b = await create_folder(db_session, user_id, "B")
     await db_session.commit()
 
-    await _save_turn(db_session, user_id, folder_a.id, "about A", "answer A", [])
-    await _save_turn(db_session, user_id, folder_b.id, "about B", "answer B", [])
+    await _save_turn(db_session, user_id, folder_a.id, "about A", AnswerResult(answer="answer A"))
+    await _save_turn(db_session, user_id, folder_b.id, "about B", AnswerResult(answer="answer B"))
 
     history_a = await get_chat_history(db_session, user_id, folder_id=folder_a.id)
     history_b = await get_chat_history(db_session, user_id, folder_id=folder_b.id)

@@ -61,7 +61,14 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
       const response = await askQuestion(trimmed, activeFolderId)
       setMessages((prev) => [
         ...prev,
-        { role: 'answer', text: response.answer, image: response.image, sources: response.sources },
+        {
+          role: 'answer',
+          text: response.answer,
+          image: response.image,
+          sources: response.sources,
+          web_sources: response.web_sources,
+          from_notes: response.from_notes,
+        },
       ])
     } catch (err) {
       setError(err.message)
@@ -113,6 +120,9 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
         )}
         {messages.map((message, index) => (
           <div className={`bubble ${message.role === 'user' ? 'user' : 'answer'}`} key={index}>
+            {message.role === 'answer' && message.from_notes === false && (
+              <span className="not-from-notes-badge">Not from your notes</span>
+            )}
             {message.role === 'answer' ? (
               <ReactMarkdown>{message.text}</ReactMarkdown>
             ) : (
@@ -131,6 +141,22 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
                   >
                     {source.title}
                   </button>
+                ))}
+              </div>
+            )}
+            {message.web_sources && message.web_sources.length > 0 && (
+              <div className="citation-row">
+                {message.web_sources.map((source) => (
+                  <a
+                    key={source.url}
+                    className="citation-chip web"
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={source.url}
+                  >
+                    &#127760; {source.title}
+                  </a>
                 ))}
               </div>
             )}

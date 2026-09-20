@@ -60,6 +60,8 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(Text, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     sources: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    web_sources: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    from_notes: Mapped[bool] = mapped_column(default=True, server_default="true", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

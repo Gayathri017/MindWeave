@@ -68,9 +68,25 @@ class ChatSource(BaseModel):
     title: str
 
 
+class WebSource(BaseModel):
+    title: str
+    url: str
+    content: str = Field(default="", exclude=True, repr=False)
+    """The excerpt Tavily returned, kept only long enough to build the
+    citation prompt -- excluded from every response/persisted payload so
+    it never bloats the API response or the stored chat history."""
+
+
 class ChatResponse(BaseModel):
     answer: str
     sources: list[ChatSource] = Field(default_factory=list, description="The items the answer drew from.")
+    web_sources: list[WebSource] = Field(
+        default_factory=list,
+        description="Web pages the answer drew from, only present when the saved items didn't cover the question.",
+    )
+    from_notes: bool = Field(
+        default=True, description="False when this answer came from the web/general knowledge, not the saved items."
+    )
     image: str | None = Field(
         default=None, description="A data URL (data:<mime>;base64,...) for a generated image, if one was made."
     )
@@ -80,6 +96,8 @@ class ChatMessageOut(BaseModel):
     role: Literal["user", "answer"]
     text: str
     sources: list[ChatSource] = Field(default_factory=list)
+    web_sources: list[WebSource] = Field(default_factory=list)
+    from_notes: bool = True
     created_at: datetime
 
 

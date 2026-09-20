@@ -31,6 +31,12 @@ deployment config.
      Supabase's public JWKS endpoint
 4. Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
 5. Copy `.env.example` to `.env` and fill in the values above.
+6. Optional: get a [Tavily](https://tavily.com) API key (free tier: 1,000
+   searches/month, no card required) and set `TAVILY_API_KEY` -- lets chat
+   ground its answers in real, cited web results when a question isn't
+   covered by your saved items, instead of just the model's own unsourced
+   general knowledge. Chat works fine without this; it just degrades to
+   that unsourced fallback.
 
 ## Run locally
 

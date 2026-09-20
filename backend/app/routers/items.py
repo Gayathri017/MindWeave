@@ -379,9 +379,7 @@ async def chat(
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
 
     try:
-        answer, sources, image_bytes, image_mime_type = await answer_question(
-            session, user_id, body.question, body.folder_id
-        )
+        result = await answer_question(session, user_id, body.question, body.folder_id)
     except Exception as exc:
         # Catching broadly and deliberately: the Gemini SDK's specific
         # exception classes live in a private module we shouldn't depend
@@ -395,7 +393,13 @@ async def chat(
         ) from exc
 
     image = None
-    if image_bytes and image_mime_type:
-        image = f"data:{image_mime_type};base64,{base64.b64encode(image_bytes).decode()}"
+    if result.image_bytes and result.image_mime_type:
+        image = f"data:{result.image_mime_type};base64,{base64.b64encode(result.image_bytes).decode()}"
 
-    return ChatResponse(answer=answer, sources=sources, image=image)
+    return ChatResponse(
+        answer=result.answer,
+        sources=result.sources,
+        web_sources=result.web_sources,
+        from_notes=result.from_notes,
+        image=image,
+    )

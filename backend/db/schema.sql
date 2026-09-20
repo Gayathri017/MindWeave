@@ -180,8 +180,18 @@ create table if not exists chat_messages (
     -- The {id, title} pairs a saved answer cited, so history can still
     -- render clickable citation chips after a reload.
     sources jsonb,
+    -- Same idea, but for web pages cited when the saved items didn't
+    -- cover the question -- {title, url} pairs, no page content stored.
+    web_sources jsonb,
+    -- False when this answer came from a web search or the model's own
+    -- general knowledge rather than the user's saved items -- lets the
+    -- history clearly re-render that disclosure after a reload too.
+    from_notes boolean not null default true,
     created_at timestamptz not null default now()
 );
+
+alter table chat_messages add column if not exists web_sources jsonb;
+alter table chat_messages add column if not exists from_notes boolean not null default true;
 
 create index if not exists chat_messages_user_id_idx on chat_messages (user_id);
 create index if not exists chat_messages_folder_id_idx on chat_messages (folder_id);
