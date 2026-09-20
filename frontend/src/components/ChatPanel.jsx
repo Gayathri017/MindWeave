@@ -133,8 +133,18 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
   }
 
   function clearAttachedImage() {
+    // Deliberately doesn't revoke the object URL here -- when this runs
+    // after a successful send (see askAboutAttachedImage), that same URL
+    // is still referenced by the just-added message bubble for as long as
+    // this chat session shows it. Only an explicit cancel-without-sending
+    // (handleRemoveAttachedImage, below) actually frees it.
     setAttachedImage(null)
     setAttachedImagePreview(null)
+  }
+
+  function handleRemoveAttachedImage() {
+    if (attachedImagePreview) URL.revokeObjectURL(attachedImagePreview)
+    clearAttachedImage()
   }
 
   async function handleVoiceQuestion(audioBlob) {
@@ -205,7 +215,7 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
                     className="citation-chip web"
                     href={source.url}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     title={source.url}
                   >
                     &#127760; {source.title}
@@ -228,7 +238,7 @@ const ChatPanel = forwardRef(function ChatPanel({ itemsPanelRef, activeFolderId 
             <button
               type="button"
               className="attached-image-remove"
-              onClick={clearAttachedImage}
+              onClick={handleRemoveAttachedImage}
               aria-label="Remove attached image"
               title="Remove attached image"
             >

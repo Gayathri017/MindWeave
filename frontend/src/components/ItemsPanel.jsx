@@ -131,7 +131,7 @@ function ExtractedDataCard({ data }) {
   return (
     <div className="extracted-data">
       {data.video_url && (
-        <a className="extracted-video-link" href={data.video_url} target="_blank" rel="noreferrer">
+        <a className="extracted-video-link" href={data.video_url} target="_blank" rel="noopener noreferrer">
           Watch on YouTube ↗
         </a>
       )}
