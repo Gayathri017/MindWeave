@@ -81,6 +81,15 @@ _ALLOWED_CHAT_IMAGE_MIME_TYPES = {
 _READ_CHUNK_BYTES = 1024 * 1024  # 1 MB per chunk
 
 
+def _base_mime_type(content_type: str) -> str:
+    """Strip codec/charset parameters browsers commonly append, e.g.
+    "audio/webm;codecs=opus" -> "audio/webm" -- matching those verbatim
+    against an allowlist would reject real browser recordings, not just
+    spoofed ones.
+    """
+    return content_type.split(";")[0].strip().lower()
+
+
 async def _read_upload_limited(file: UploadFile, max_bytes: int, error_detail: str) -> bytes:
     """Read an upload in bounded chunks, aborting the moment it exceeds
     max_bytes.
@@ -154,7 +163,7 @@ async def upload_audio_item(
     browser or picked from an existing file, both arrive here the same
     way -- transcribes it, and saves it through the normal pipeline.
     """
-    mime_type = file.content_type or "audio/webm"
+    mime_type = _base_mime_type(file.content_type or "audio/webm")
     if mime_type not in _ALLOWED_AUDIO_MIME_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -207,7 +216,7 @@ async def upload_document_item(
     whatever it turns out to be -- extracts its text and any structured
     data it contains, and saves it through the normal pipeline.
     """
-    mime_type = file.content_type or "application/octet-stream"
+    mime_type = _base_mime_type(file.content_type or "application/octet-stream")
     if mime_type not in _ALLOWED_DOCUMENT_MIME_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -259,7 +268,7 @@ async def transcribe(
     """Transcribe a short recording without saving it as an item -- used
     for asking a chat question by voice instead of typing it.
     """
-    mime_type = file.content_type or "audio/webm"
+    mime_type = _base_mime_type(file.content_type or "audio/webm")
     if mime_type not in _ALLOWED_AUDIO_MIME_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -415,7 +424,7 @@ async def chat_about_image(
     answered on the spot from the image itself, not saved as an item and
     not drawn from the user's saved knowledge.
     """
-    mime_type = file.content_type or "application/octet-stream"
+    mime_type = _base_mime_type(file.content_type or "application/octet-stream")
     if mime_type not in _ALLOWED_CHAT_IMAGE_MIME_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
