@@ -457,6 +457,7 @@ const ItemsPanel = forwardRef(function ItemsPanel(
   const [content, setContent] = useState('')
   const [saveFolderId, setSaveFolderId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [savingLabel, setSavingLabel] = useState('')
   const [showUploadMenu, setShowUploadMenu] = useState(false)
   const [viewMode, setViewMode] = useState('list')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -590,6 +591,7 @@ const ItemsPanel = forwardRef(function ItemsPanel(
     if (!trimmed || saving) return
 
     setSaving(true)
+    setSavingLabel(URL_PATTERN.test(trimmed) ? 'Reading link…' : 'Saving note…')
     setError(null)
     try {
       const sourceType = URL_PATTERN.test(trimmed) ? 'url' : 'text'
@@ -603,6 +605,7 @@ const ItemsPanel = forwardRef(function ItemsPanel(
       setError(err.message)
     } finally {
       setSaving(false)
+      setSavingLabel('')
     }
   }
 
@@ -624,6 +627,7 @@ const ItemsPanel = forwardRef(function ItemsPanel(
 
   async function handleAudioReady(blobOrFile) {
     setSaving(true)
+    setSavingLabel('Transcribing recording…')
     setError(null)
     try {
       await uploadAudio(blobOrFile, blobOrFile.name || 'recording.webm', effectiveSaveFolderId)
@@ -634,6 +638,7 @@ const ItemsPanel = forwardRef(function ItemsPanel(
       setError(err.message)
     } finally {
       setSaving(false)
+      setSavingLabel('')
     }
   }
 
@@ -663,7 +668,12 @@ const ItemsPanel = forwardRef(function ItemsPanel(
     setSaving(true)
     setError(null)
     const failures = []
-    for (const file of files) {
+    for (const [index, file] of files.entries()) {
+      setSavingLabel(
+        files.length > 1
+          ? `Reading document ${index + 1} of ${files.length} (${file.name})…`
+          : `Reading document (${file.name})…`
+      )
       try {
         await uploadDocument(file, effectiveSaveFolderId)
       } catch (err) {
@@ -674,6 +684,7 @@ const ItemsPanel = forwardRef(function ItemsPanel(
     onItemsChanged?.()
     onFoldersChanged?.()
     setSaving(false)
+    setSavingLabel('')
     if (failures.length > 0) {
       setError(failures.join(' — '))
     }
@@ -795,6 +806,12 @@ const ItemsPanel = forwardRef(function ItemsPanel(
 
       <form className="save-form" onSubmit={handleSubmit}>
         {error && <p className="error">{error}</p>}
+        {saving && savingLabel && (
+          <p className="saving-status">
+            <span className="saving-spinner" />
+            {savingLabel}
+          </p>
+        )}
 
         {recorder.isRecording ? (
           <div className="recording-bar">

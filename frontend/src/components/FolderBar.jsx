@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { createFolder, deleteFolder } from '../lib/api'
+import { createFolder, deleteFolder, renameFolder } from '../lib/api'
 
 function PlusIcon() {
   return (
@@ -14,6 +14,8 @@ export default function FolderBar({ folders, activeFolderId, onSelectFolder, onF
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [error, setError] = useState(null)
+  const [renamingId, setRenamingId] = useState(null)
+  const [renameValue, setRenameValue] = useState('')
 
   async function handleCreate(event) {
     event.preventDefault()
@@ -50,6 +52,34 @@ export default function FolderBar({ folders, activeFolderId, onSelectFolder, onF
     }
   }
 
+  function startRenaming(event, folder) {
+    event.stopPropagation()
+    setRenamingId(folder.id)
+    setRenameValue(folder.name)
+  }
+
+  async function commitRename(folder) {
+    const trimmed = renameValue.trim()
+    setRenamingId(null)
+    if (!trimmed || trimmed === folder.name) return
+
+    try {
+      await renameFolder(folder.id, trimmed)
+      await onFoldersChanged()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  function handleRenameKeyDown(event, folder) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      event.currentTarget.blur()
+    } else if (event.key === 'Escape') {
+      setRenamingId(null)
+    }
+  }
+
   return (
     <div className="folder-bar">
       {error && <p className="error folder-bar-error">{error}</p>}
@@ -62,26 +92,40 @@ export default function FolderBar({ folders, activeFolderId, onSelectFolder, onF
           Home
         </button>
 
-        {folders.map((folder) => (
-          <button
-            type="button"
-            key={folder.id}
-            className={`folder-pill${activeFolderId === folder.id ? ' active' : ''}`}
-            onClick={() => onSelectFolder(folder.id)}
-          >
-            {folder.name}
-            <span className="folder-pill-count">{folder.item_count}</span>
-            <span
-              className="folder-pill-delete"
-              onClick={(event) => handleDelete(event, folder)}
-              role="button"
-              aria-label={`Delete folder ${folder.name}`}
-              title="Delete folder"
+        {folders.map((folder) =>
+          renamingId === folder.id ? (
+            <input
+              key={folder.id}
+              autoFocus
+              className="folder-pill folder-rename-input"
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              onBlur={() => commitRename(folder)}
+              onKeyDown={(event) => handleRenameKeyDown(event, folder)}
+            />
+          ) : (
+            <button
+              type="button"
+              key={folder.id}
+              className={`folder-pill${activeFolderId === folder.id ? ' active' : ''}`}
+              onClick={() => onSelectFolder(folder.id)}
+              onDoubleClick={(event) => startRenaming(event, folder)}
+              title="Double-click to rename"
             >
-              &times;
-            </span>
-          </button>
-        ))}
+              {folder.name}
+              <span className="folder-pill-count">{folder.item_count}</span>
+              <span
+                className="folder-pill-delete"
+                onClick={(event) => handleDelete(event, folder)}
+                role="button"
+                aria-label={`Delete folder ${folder.name}`}
+                title="Delete folder"
+              >
+                &times;
+              </span>
+            </button>
+          )
+        )}
 
         {creating ? (
           <form className="folder-create-form" onSubmit={handleCreate}>

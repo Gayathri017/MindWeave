@@ -45,6 +45,10 @@ class CreateFolderRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
 
 
+class RenameFolderRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+
+
 class FolderSummary(BaseModel):
     id: uuid.UUID
     name: str

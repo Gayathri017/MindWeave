@@ -216,6 +216,38 @@ button:disabled {
   width: 140px;
 }
 
+.saving-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted-dark, #8a8a7a);
+  margin: 0 0 8px;
+}
+
+.saving-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: var(--orange, #d97b3f);
+  animation: saving-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes saving-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.folder-rename-input {
+  background: var(--olive);
+  border: 1px solid var(--orange);
+  color: var(--text-on-dark);
+  width: 120px;
+}
+
 .panel-header {
   display: flex;
   align-items: center;

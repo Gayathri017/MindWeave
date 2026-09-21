@@ -20,6 +20,7 @@ from app.models.schemas import (
     ChatRequest,
     ChatResponse,
     CreateFolderRequest,
+    RenameFolderRequest,
     ExplainerResponse,
     FolderSummary,
     ItemSummary,
@@ -30,7 +31,14 @@ from app.models.schemas import (
 )
 from app.services.explainer import build_explainer
 from app.services.file_signatures import looks_like_claimed_type
-from app.services.folders import FolderNotFound, create_folder, delete_folder, list_folders
+from app.services.folders import (
+    FolderNotFound,
+    count_folder_items,
+    create_folder,
+    delete_folder,
+    list_folders,
+    rename_folder,
+)
 from app.services.gemini_client import transcribe_audio
 from app.services.ingestion import save_audio_item, save_document_item, save_item
 from app.services.items import delete_item, get_item, list_items, update_item_folder
@@ -398,6 +406,20 @@ async def remove_folder(
     deleted = await delete_folder(session, user_id, folder_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found.")
+
+
+@router.patch("/folders/{folder_id}", response_model=FolderSummary)
+async def rename_folder_route(
+    folder_id: uuid.UUID,
+    body: RenameFolderRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> FolderSummary:
+    folder = await rename_folder(session, user_id, folder_id, body.name)
+    if folder is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found.")
+    item_count = await count_folder_items(session, folder_id)
+    return FolderSummary(id=folder.id, name=folder.name, item_count=item_count, created_at=folder.created_at)
 
 
 @router.get("/chat/messages", response_model=list[ChatMessageOut])

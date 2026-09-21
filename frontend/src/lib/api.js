@@ -131,6 +131,13 @@ export function deleteFolder(id) {
   return authorizedFetch(`/api/folders/${id}`, { method: 'DELETE' })
 }
 
+export function renameFolder(id, name) {
+  return authorizedFetch(`/api/folders/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  })
+}
+
 export function uploadAudio(audioBlob, filename = 'recording.webm', folderId = null) {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const formData = new FormData()

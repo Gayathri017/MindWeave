@@ -33,6 +33,25 @@ async def create_folder(session: AsyncSession, user_id: str, name: str) -> Folde
     return folder
 
 
+async def rename_folder(session: AsyncSession, user_id: str, folder_id: uuid.UUID, name: str) -> Folder | None:
+    """Returns the updated folder, or None if it doesn't exist or isn't owned by this user."""
+    folder = (
+        await session.execute(select(Folder).where(Folder.id == folder_id, Folder.user_id == user_id))
+    ).scalar_one_or_none()
+    if folder is None:
+        return None
+
+    folder.name = name.strip()
+    await session.flush()
+    return folder
+
+
+async def count_folder_items(session: AsyncSession, folder_id: uuid.UUID) -> int:
+    return (
+        await session.execute(select(func.count(Item.id)).where(Item.folder_id == folder_id))
+    ).scalar_one()
+
+
 async def list_folders(session: AsyncSession, user_id: str) -> list[FolderSummary]:
     """Every folder, newest first, with how many items are filed in each."""
     rows = (
