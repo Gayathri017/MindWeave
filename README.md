@@ -2,6 +2,10 @@
 
 **Live app:** [mind-weave-zeta.vercel.app](https://mind-weave-zeta.vercel.app)
 
+> This is a personal project built to practice full-stack and AI engineering skills, deployed for a handful of users — not hardened for production scale (e.g. free-tier hosting, no CDN/caching layer, no SMTP domain verified yet for email at scale).
+>
+> Honest note on AI features: this runs on the free tier of the Gemini API. Image generation, TTS narration, and video understanding (used by the slideshow explainer and YouTube ingestion) have low free-tier rate limits and may fail or throttle under real usage. Everything works reliably on a paid Gemini tier — that's just not turned on here, since this isn't a funded production app.
+
 A personal knowledge base that saves whatever you throw at it — a link, a note, a voice memo, a PDF, a receipt, a YouTube video — and lets you ask questions over everything you've saved, in plain English, with real answers grounded in your own material.
 
 Unlike a plain notes app, Mindweave *understands* what you save: it transcribes and summarizes audio, extracts structured data from documents and receipts, watches and understands YouTube videos (not just their page text), builds a live concept graph of how your ideas connect, and answers questions with citations back to the source. It also organizes itself: folders group related items and each get their own persistent, scoped chat, an old note resurfaces once a day so nothing is write-only, and a command palette (`Ctrl+K` / `Cmd+K`) makes the whole thing keyboard-driven.
@@ -77,7 +81,7 @@ This backend connects to Postgres directly (not through Supabase's PostgREST lay
 
 ## A note on how this was built
 
-Mindweave's feature set grew through an unusually long, iterative collaboration with an AI pair-programmer (Claude), one real feature at a time — each one scoped, built, tested, and shipped before moving to the next, with real bugs found and fixed along the way rather than assumed away.
+Built using Claude as a development tool.
 
 ## License
 
