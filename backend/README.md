@@ -41,17 +41,20 @@ and full architecture.
 
 ## Run locally
 
+`requirements.txt` has runtime deps only (what production installs);
+`requirements-dev.txt` adds pytest on top -- use that one locally.
+
 **Mac/Linux:**
 ```bash
 uv venv
-uv pip install -r requirements.txt
+uv pip install -r requirements-dev.txt
 uv run uvicorn app.main:app --reload
 ```
 
 **Windows:**
 ```bash
 uv venv
-uv pip install -r requirements.txt
+uv pip install -r requirements-dev.txt
 uv run python run.py
 ```
 

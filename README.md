@@ -60,7 +60,7 @@ Each has its own `README.md` with detailed setup instructions:
 ```bash
 # Backend
 cd backend
-uv venv && uv pip install -r requirements.txt
+uv venv && uv pip install -r requirements-dev.txt
 # fill in .env (see backend/README.md for what's needed)
 uv run python run.py        # Windows
 uvicorn app.main:app --reload  # Mac/Linux
