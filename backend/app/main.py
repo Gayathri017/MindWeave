@@ -1,5 +1,7 @@
 """FastAPI application entrypoint."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -9,10 +11,18 @@ from app.config import get_settings
 from app.routers.graph import router as graph_router
 from app.routers.items import limiter
 from app.routers.items import router as items_router
+from app.services.graph_db import close_driver
 
 settings = get_settings()
 
-app = FastAPI(title="Mindweave API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    await close_driver()
+
+
+app = FastAPI(title="Mindweave API", version="0.1.0", lifespan=lifespan)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

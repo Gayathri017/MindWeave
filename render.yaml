@@ -30,3 +30,9 @@ services:
         value: "100"
       - key: TAVILY_API_KEY
         sync: false
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false

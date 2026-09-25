@@ -26,6 +26,18 @@ class Settings(BaseSettings):
     # to also ground those fallback answers in real, cited web results.
     tavily_api_key: str | None = None
 
+    # Optional -- GraphRAG (typed concept relations + graph traversal
+    # during retrieval) is disabled unless all three are set. Everything
+    # else works fine without it; this is an additive enhancement, not a
+    # dependency the rest of the app relies on. Free tier: AuraDB Free.
+    neo4j_uri: str | None = None
+    neo4j_username: str | None = None
+    neo4j_password: str | None = None
+
+    @property
+    def graph_db_enabled(self) -> bool:
+        return bool(self.neo4j_uri and self.neo4j_username and self.neo4j_password)
+
     environment: str = "development"
     cors_origins: str = "http://localhost:5173"
     # Fallback only, used when a save request doesn't include its own
