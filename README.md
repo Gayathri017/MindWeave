@@ -1,5 +1,7 @@
 # Mindweave
 
+**Live app:** [mind-weave-zeta.vercel.app](https://mind-weave-zeta.vercel.app)
+
 A personal knowledge base that saves whatever you throw at it — a link, a note, a voice memo, a PDF, a receipt, a YouTube video — and lets you ask questions over everything you've saved, in plain English, with real answers grounded in your own material.
 
 Unlike a plain notes app, Mindweave *understands* what you save: it transcribes and summarizes audio, extracts structured data from documents and receipts, watches and understands YouTube videos (not just their page text), builds a live concept graph of how your ideas connect, and answers questions with citations back to the source. It also organizes itself: folders group related items and each get their own persistent, scoped chat, an old note resurfaces once a day so nothing is write-only, and a command palette (`Ctrl+K` / `Cmd+K`) makes the whole thing keyboard-driven.
@@ -33,9 +35,13 @@ Unlike a plain notes app, Mindweave *understands* what you save: it transcribes 
 | Backend | FastAPI (Python), async throughout |
 | Database | Postgres + pgvector, hosted on Supabase |
 | Auth | Supabase Auth (magic link), enforced via real Postgres Row-Level Security |
-| AI | Google Gemini — chat, embeddings, transcription, image generation, TTS, video understanding — one provider, one client module |
+| AI | Google Gemini — chat (`gemini-3.8-flash`), embeddings (`gemini-embedding-001`), transcription, image generation, TTS, video understanding — one provider, one client module |
+| Retrieval | RAG: pgvector similarity search over chunked + embedded items, then an LLM reranking pass over the candidate pool before answering, with citations back to source items |
+| Web grounding | Tavily API — real, cited web search results when a question isn't covered by saved items |
 | Frontend | React + Vite |
-| Graph | react-force-graph-2d |
+| Graph | react-force-graph-2d — auto-built concept graph from extracted entities/topics |
+| Backend hosting | Render |
+| Frontend hosting | Vercel |
 
 ## Project structure
 
@@ -71,7 +77,7 @@ This backend connects to Postgres directly (not through Supabase's PostgREST lay
 
 ## A note on how this was built
 
-Mindweave's feature set grew through an unusually long, iterative collaboration with an AI pair-programmer (Claude), one real feature at a time — each one scoped, built, tested, and shipped before moving to the next, with real bugs found and fixed along the way rather than assumed away. A full narrative account of that process — what was built, why, what broke, and how it was fixed — is available as a separate development journal document.
+Mindweave's feature set grew through an unusually long, iterative collaboration with an AI pair-programmer (Claude), one real feature at a time — each one scoped, built, tested, and shipped before moving to the next, with real bugs found and fixed along the way rather than assumed away.
 
 ## License
 

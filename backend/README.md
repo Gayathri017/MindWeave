@@ -1,13 +1,14 @@
-# Mindweave -- backend (Phase 3 + 4: ingestion, RAG, and the concept graph)
+# Mindweave -- backend
 
-This is the backend service for Mindweave. So far it implements: saving an
-item (a pasted URL or note), chunking + embedding it, answering questions
-over a user's own saved knowledge with retrieval-augmented generation
-(RAG), and automatically extracting concepts from each item to build a
-graph of how your ideas connect -- no manual linking required.
+This is the backend service for Mindweave: saving an item (a pasted URL,
+note, voice memo, document, or YouTube link), chunking + embedding it,
+answering questions over a user's own saved knowledge with
+retrieval-augmented generation (RAG), and automatically extracting
+concepts from each item to build a graph of how your ideas connect -- no
+manual linking required.
 
-**Not yet implemented** (later phases): the frontend, and production
-deployment config.
+Deployed on Render; see the main [README](../README.md) for the live URL
+and full architecture.
 
 ## Stack
 
