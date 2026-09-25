@@ -90,7 +90,17 @@ _DOCUMENT_SYSTEM_INSTRUCTION = (
     "chart, graph, or table (label like 'Figure 2' or 'Table 1', its "
     "caption if present, and a description of what it actually shows -- "
     "the trend, the comparison, the data -- not just the caption restated). "
-    "Leave empty if the document has no figures."
+    "Leave empty if the document has no figures.\n"
+    "- relations: for a research paper or technical report specifically, "
+    "the meaningful relationships between the concepts, methods, systems, "
+    "or datasets it discusses -- draw on the figures/charts/tables too, "
+    "not just the prose (a plot comparing two methods IS a relation). "
+    "Each one is (subject, relation, object) with a short, specific "
+    "relation label in snake_case, e.g. ('GraphRAG', 'outperforms', "
+    "'vector-only RAG'), ('ResNet-50', 'evaluated_on', 'ImageNet'), "
+    "('this method', 'builds_on', 'transformer architecture'). Skip this "
+    "entirely (leave empty) for anything that isn't a paper/report -- a "
+    "receipt or form has no relations worth extracting."
 )
 
 
@@ -107,6 +117,12 @@ class ExtractedFigure(BaseModel):
     description: str = Field(..., description="What the figure/graph/chart actually shows.")
 
 
+class ExtractedRelation(BaseModel):
+    subject: str = Field(..., description="Short name, e.g. 'GraphRAG'.")
+    relation: str = Field(..., description="Short snake_case label, e.g. 'outperforms', 'evaluated_on'.")
+    object: str = Field(..., description="Short name, e.g. 'vector-only RAG'.")
+
+
 class DocumentExtraction(BaseModel):
     document_type: str = Field(..., description="Short classification, e.g. 'receipt', 'research paper', 'form'.")
     full_text: str = Field(..., description="The document's full text content, in its original language.")
@@ -115,6 +131,10 @@ class DocumentExtraction(BaseModel):
     )
     line_items: list[ExtractedLineItem] = Field(default_factory=list)
     figures: list[ExtractedFigure] = Field(default_factory=list)
+    relations: list[ExtractedRelation] = Field(
+        default_factory=list,
+        description="(subject, relation, object) triples -- papers/reports only, empty otherwise.",
+    )
 
 
 def extract_document_content(file_bytes: bytes, mime_type: str) -> DocumentExtraction:

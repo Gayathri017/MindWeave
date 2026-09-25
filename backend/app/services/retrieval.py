@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.orm import ChatMessage, Chunk, Item
 from app.models.schemas import ChatMessageOut, ChatSource, WebSource
 from app.services.gemini_client import embed_text, generate_image, generate_structured, generate_text_from_file
+from app.services.graph_db import get_related_concepts, get_relations_for_items
 from app.services.web_search import search_web
 
 logger = logging.getLogger(__name__)
@@ -30,10 +31,17 @@ _SYSTEM_INSTRUCTION = (
     "to answer the question -- not just related, genuinely sufficient? "
     "Some of the excerpts may be irrelevant noise from a broad first-pass "
     "search; ignore those when judging.\n\n"
+    "A 'Related facts from your knowledge graph' section may follow the "
+    "excerpts -- short relationship facts (e.g. 'X outperforms Y') pulled "
+    "from a concept graph built over the user's saved items. Treat these "
+    "as supporting context only, never as a substitute for the excerpts, "
+    "and don't cite them in used_excerpts (that list is excerpt numbers "
+    "only).\n\n"
     "If they're sufficient: set notes_sufficient to true, write the "
-    "answer using ONLY those excerpts, and set used_excerpts to the "
-    "numbers of exactly the ones you relied on -- don't include one you "
-    "didn't use, don't omit one you did, since this drives citations.\n\n"
+    "answer using ONLY those excerpts (plus any graph facts as supporting "
+    "context), and set used_excerpts to the numbers of exactly the ones "
+    "you relied on -- don't include one you didn't use, don't omit one "
+    "you did, since this drives citations.\n\n"
     "If they're NOT sufficient: set notes_sufficient to false, leave "
     "answer and used_excerpts empty, and set web_search_query to a short, "
     "effective web search query for this question instead.\n\n"
@@ -130,6 +138,46 @@ def _display_title(item: Item) -> str:
     if len(stripped) <= _FALLBACK_TITLE_LENGTH:
         return stripped
     return stripped[:_FALLBACK_TITLE_LENGTH].rsplit(" ", 1)[0] + "…"
+
+
+async def _graph_context_for_items(session: AsyncSession, user_id: str, item_ids: set[uuid.UUID]) -> str:
+    """GraphRAG step: pull relation facts tied to the items the vector
+    search already turned up (e.g. "GraphRAG outperforms vector-only RAG"),
+    then expand one hop further to relations from OTHER items that share a
+    concept -- context vector similarity alone can't surface, since two
+    related concepts don't need similar wording to be related.
+
+    Looked up by item ID, not by concept name: the flat-concept extraction
+    used for the Postgres concept graph is a separate Gemini call with its
+    own vocabulary (e.g. "hotpotqa dataset" there vs "hotpotqa" from the
+    relation extraction), so those names don't reliably match each other.
+    Item ID is the one link both extractions agree on.
+
+    Returns "" (not an error) if GraphRAG isn't configured or nothing's
+    linked yet -- purely additive on top of vector RAG.
+    """
+    if not item_ids:
+        return ""
+    try:
+        direct_facts = await get_relations_for_items(str(user_id), [str(i) for i in item_ids])
+        concept_names = {f["subject"] for f in direct_facts} | {f["object"] for f in direct_facts}
+        expanded_facts = await get_related_concepts(str(user_id), list(concept_names)) if concept_names else []
+    except Exception:
+        logger.exception("GraphRAG lookup failed for user %s; continuing with vector-only context.", user_id)
+        return ""
+
+    seen: set[tuple[str, str, str]] = set()
+    facts: list[dict[str, str]] = []
+    for fact in [*direct_facts, *expanded_facts]:
+        key = (fact["subject"], fact["relation"], fact["object"])
+        if key not in seen:
+            seen.add(key)
+            facts.append(fact)
+
+    if not facts:
+        return ""
+    lines = "\n".join(f"- {f['subject']} {f['relation'].replace('_', ' ')} {f['object']}" for f in facts)
+    return f"\n\nRelated facts from your knowledge graph:\n{lines}"
 
 
 def _generate_image_safely(prompt: str | None, user_id: str) -> tuple[bytes | None, str | None]:
@@ -274,7 +322,8 @@ async def answer_question(session: AsyncSession, user_id: str, question: str, fo
         return answer_result
 
     context = "\n\n---\n\n".join(f"[{index}] {chunk.content}" for index, chunk in enumerate(matches, start=1))
-    prompt = f"Saved excerpts:\n\n{context}\n\nQuestion: {question}"
+    graph_context = await _graph_context_for_items(session, user_id, {chunk.item_id for chunk in matches})
+    prompt = f"Saved excerpts:\n\n{context}{graph_context}\n\nQuestion: {question}"
 
     result = await asyncio.to_thread(generate_structured, prompt, _ChatAnswer, system_instruction=_SYSTEM_INSTRUCTION)
 

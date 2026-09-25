@@ -68,6 +68,14 @@ def _get_driver() -> AsyncDriver | None:
     return _driver
 
 
+def normalize_name(name: str) -> str:
+    """Same normalization the Postgres concept graph uses -- so "GraphRAG"
+    and "graphrag" from two different extractions collapse into one node
+    instead of fragmenting the graph.
+    """
+    return name.strip().lower()
+
+
 @asynccontextmanager
 async def get_graph_session() -> AsyncGenerator[AsyncSession | None, None]:
     """Yields a Neo4j session, or None if GraphRAG isn't configured --
@@ -89,3 +97,109 @@ async def close_driver() -> None:
     if _driver is not None:
         await _driver.close()
         _driver = None
+
+
+_UPSERT_RELATION_QUERY = """
+MERGE (s:Concept {user_id: $user_id, name: $subject})
+MERGE (o:Concept {user_id: $user_id, name: $object})
+MERGE (s)-[r:RELATES {type: $relation, user_id: $user_id}]->(o)
+ON CREATE SET r.weight = 1, r.item_ids = [$item_id]
+ON MATCH SET
+    r.weight = r.weight + 1,
+    r.item_ids = CASE WHEN $item_id IN r.item_ids THEN r.item_ids ELSE r.item_ids + $item_id END
+"""
+
+
+async def store_relations_for_item(
+    user_id: str, item_id: str, relations: list[tuple[str, str, str]]
+) -> None:
+    """Write (subject, relation, object) triples extracted from one item
+    into the graph. Best-effort by design -- callers should wrap this in
+    the same try/except-and-log pattern already used for the Postgres
+    concept graph in extraction.py, so a GraphRAG hiccup never fails a
+    save that otherwise succeeded.
+    """
+    if not relations:
+        return
+    async with get_graph_session() as session:
+        if session is None:
+            return
+        for subject, relation, obj in relations:
+            await session.run(
+                _UPSERT_RELATION_QUERY,
+                user_id=user_id,
+                item_id=item_id,
+                subject=normalize_name(subject),
+                relation=normalize_name(relation).replace(" ", "_"),
+                object=normalize_name(obj),
+            )
+
+
+_NEIGHBORS_QUERY = """
+MATCH (c:Concept {user_id: $user_id})
+WHERE c.name IN $concept_names
+MATCH (c)-[r:RELATES {user_id: $user_id}]-(neighbor:Concept {user_id: $user_id})
+RETURN DISTINCT c.name AS concept, r.type AS relation, neighbor.name AS neighbor,
+       startNode(r).name AS subject, endNode(r).name AS object
+LIMIT $limit
+"""
+
+
+async def get_related_concepts(
+    user_id: str, concept_names: list[str], limit: int = 25
+) -> list[dict[str, str]]:
+    """One-hop neighbors (in either direction) of the given concepts, with
+    the relation type and its original subject/object direction -- this is
+    the actual GraphRAG step: extra context pulled from the graph to hand
+    the chat model alongside the vector-search excerpts.
+
+    Returns [] if GraphRAG isn't configured or none of the concepts exist
+    yet in the graph -- always a safe, empty fallback, never an error.
+    """
+    if not concept_names:
+        return []
+    async with get_graph_session() as session:
+        if session is None:
+            return []
+        normalized = [normalize_name(name) for name in concept_names]
+        result = await session.run(
+            _NEIGHBORS_QUERY, user_id=user_id, concept_names=normalized, limit=limit
+        )
+        records = await result.data()
+        return [
+            {"subject": r["subject"], "relation": r["relation"], "object": r["object"]}
+            for r in records
+        ]
+
+
+_RELATIONS_FOR_ITEMS_QUERY = """
+MATCH (s:Concept {user_id: $user_id})-[r:RELATES {user_id: $user_id}]->(o:Concept {user_id: $user_id})
+WHERE any(id IN r.item_ids WHERE id IN $item_ids)
+RETURN DISTINCT s.name AS subject, r.type AS relation, o.name AS object
+LIMIT $limit
+"""
+
+
+async def get_relations_for_items(
+    user_id: str, item_ids: list[str], limit: int = 25
+) -> list[dict[str, str]]:
+    """Relations extracted directly from the given items (by item ID, not
+    by matching concept names against the separate flat-concept
+    extraction -- that extraction runs as an independent Gemini call with
+    its own vocabulary, e.g. "hotpotqa dataset" there vs "hotpotqa" here,
+    so joining on name silently misses everything). Item ID is the only
+    reliable link between a vector-search match and its graph relations.
+
+    Returns [] if GraphRAG isn't configured or the item has no relations
+    (most items won't -- this is a papers/reports-only extraction).
+    """
+    if not item_ids:
+        return []
+    async with get_graph_session() as session:
+        if session is None:
+            return []
+        result = await session.run(
+            _RELATIONS_FOR_ITEMS_QUERY, user_id=user_id, item_ids=item_ids, limit=limit
+        )
+        records = await result.data()
+        return [{"subject": r["subject"], "relation": r["relation"], "object": r["object"]} for r in records]

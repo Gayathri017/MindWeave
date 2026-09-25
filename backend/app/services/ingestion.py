@@ -22,6 +22,7 @@ from app.services.extraction import (
 )
 from app.services.folders import validate_folder_ownership
 from app.services.gemini_client import embed_texts, generate_title, transcribe_audio
+from app.services.graph_db import store_relations_for_item
 from app.services.limits import DailyLimitExceeded, enforce_daily_limit
 from app.services.url_safety import ensure_public_url
 
@@ -238,7 +239,7 @@ async def save_document_item(
         "line_items": [item.model_dump() for item in extraction.line_items],
         "figures": [figure.model_dump() for figure in extraction.figures],
     }
-    return await _finish_saving_item(
+    item = await _finish_saving_item(
         session,
         user_id,
         "document",
@@ -251,3 +252,15 @@ async def save_document_item(
         extracted_data=extracted_data,
         folder_id=folder_id,
     )
+
+    if extraction.relations:
+        # GraphRAG enhancement, papers/reports only -- best-effort, same as
+        # concept storage above: a Neo4j hiccup must never fail a save that
+        # otherwise succeeded.
+        try:
+            triples = [(r.subject, r.relation, r.object) for r in extraction.relations]
+            await store_relations_for_item(str(user_id), str(item.id), triples)
+        except Exception:
+            logger.exception("Storing graph relations failed for item %s; item was still saved.", item.id)
+
+    return item
