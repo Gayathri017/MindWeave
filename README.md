@@ -5,6 +5,8 @@
 > This is a personal project built to practice full-stack and AI engineering skills, deployed for a handful of users — not hardened for production scale (e.g. free-tier hosting, no CDN/caching layer, no SMTP domain verified yet for email at scale).
 >
 > Honest note on AI features: this runs on the free tier of the Gemini API. Image generation, TTS narration, and video understanding (used by the slideshow explainer and YouTube ingestion) have low free-tier rate limits and may fail or throttle under real usage. Everything works reliably on a paid Gemini tier — that's just not turned on here, since this isn't a funded production app.
+>
+> GraphRAG (Neo4j) is a newer, optional layer on top of the core RAG pipeline, built as a learning exercise in graph-augmented retrieval. It only activates for uploaded research papers/reports and only if Neo4j credentials are configured — everything else works identically without it.
 
 A personal knowledge base that saves whatever you throw at it — a link, a note, a voice memo, a PDF, a receipt, a YouTube video — and lets you ask questions over everything you've saved, in plain English, with real answers grounded in your own material.
 
@@ -40,10 +42,11 @@ Unlike a plain notes app, Mindweave *understands* what you save: it transcribes 
 | Database | Postgres + pgvector, hosted on Supabase |
 | Auth | Supabase Auth (magic link), enforced via real Postgres Row-Level Security |
 | AI | Google Gemini — chat (`gemini-3.8-flash`), embeddings (`gemini-embedding-001`), transcription, image generation, TTS, video understanding — one provider, one client module |
-| Retrieval | RAG: pgvector similarity search over chunked + embedded items, then an LLM reranking pass over the candidate pool before answering, with citations back to source items |
+| Retrieval | Hybrid RAG: pgvector similarity search over chunked + embedded items, then an LLM reranking pass over the candidate pool, plus a GraphRAG step (see below) that adds related facts before answering — with citations back to source items |
+| GraphRAG | Neo4j (AuraDB) — for research papers/reports, Gemini also extracts typed (subject, relation, object) triples (e.g. "GraphRAG outperforms vector-only RAG"), written to a graph. At answer time, facts tied to the matched items — plus a one-hop expansion to related items elsewhere in the graph — are added to the prompt alongside the vector-search excerpts. Optional: fully disabled with no config changes if Neo4j isn't set up |
 | Web grounding | Tavily API — real, cited web search results when a question isn't covered by saved items |
 | Frontend | React + Vite |
-| Graph | react-force-graph-2d — auto-built concept graph from extracted entities/topics |
+| Concept graph (visualization) | A separate, simpler graph — co-occurring concepts stored as plain Postgres tables, rendered with react-force-graph-2d. This one is visualization only, independent of the Neo4j GraphRAG pipeline above |
 | Backend hosting | Render |
 | Frontend hosting | Vercel |
 
