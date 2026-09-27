@@ -7,11 +7,13 @@ import uuid
 
 import httpx
 from bs4 import BeautifulSoup
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.orm import Chunk, Item
+from app.models.orm import Chunk, ConceptMention, Item
 from app.models.schemas import SaveItemRequest
 from app.services.chunking import chunk_text
+from app.services.concepts_cleanup import cleanup_orphaned_concepts
 from app.services.dates import resolve_today
 from app.services.extraction import (
     enrich_note,
@@ -263,4 +265,50 @@ async def save_document_item(
         except Exception:
             logger.exception("Storing graph relations failed for item %s; item was still saved.", item.id)
 
+    return item
+
+
+async def edit_text_item(
+    session: AsyncSession, user_id: str, item_id: uuid.UUID, new_text: str, timezone: str | None
+) -> Item | None:
+    """Replace a typed note's text and fully reprocess it -- old chunks and
+    concept mentions are dropped and rebuilt from the new text, the same
+    way a fresh save would, so chat search and the concept graph never
+    drift out of sync with what the note actually says now.
+
+    Only for source_type == 'text': a URL, audio transcript, or document
+    extraction's raw_text isn't something a user typed and should own the
+    editing of -- re-scraping/re-transcribing/re-extracting is a different
+    operation with its own tradeoffs, out of scope here.
+
+    Returns None if the item doesn't exist, isn't owned by this user, or
+    isn't a typed note.
+    """
+    item = (
+        await session.execute(
+            select(Item).where(Item.id == item_id, Item.user_id == user_id, Item.source_type == "text")
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        return None
+
+    await session.execute(delete(Chunk).where(Chunk.item_id == item_id))
+    await session.execute(delete(ConceptMention).where(ConceptMention.item_id == item_id))
+    await cleanup_orphaned_concepts(session, user_id)
+
+    reference_date = resolve_today(timezone)
+    text_for_retrieval, concept_names = await asyncio.to_thread(enrich_note, new_text, reference_date)
+
+    item.raw_text = new_text
+
+    pieces = chunk_text(text_for_retrieval)
+    if pieces:
+        vectors = await asyncio.to_thread(embed_texts, pieces)
+        for content, vector in zip(pieces, vectors):
+            session.add(Chunk(item_id=item.id, user_id=user_id, content=content, embedding=vector))
+
+    if concept_names:
+        await store_concepts_for_item(session, user_id, item.id, concept_names)
+
+    await session.flush()
     return item

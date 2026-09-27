@@ -1,7 +1,9 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import {
   deleteItem,
+  editItem,
   explainItem,
+  getItem,
   listItems,
   moveItemToFolder,
   saveItem,
@@ -182,13 +184,91 @@ function ExtractedDataCard({ data }) {
   )
 }
 
-function ItemCard({ item, onDelete, folders, onMove, onExplain, explainingId }) {
+function ItemCard({ item, onDelete, folders, onMove, onExplain, explainingId, onEdit }) {
   const isExplaining = explainingId === item.id
+  const isEditable = item.source_type === 'text' && Boolean(onEdit)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [loadingFull, setLoadingFull] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState(null)
+
+  async function startEditing() {
+    setEditError(null)
+    setEditing(true)
+    setLoadingFull(true)
+    try {
+      const full = await getItem(item.id)
+      setDraft(full.raw_text)
+    } catch (err) {
+      setEditError(err.message)
+    } finally {
+      setLoadingFull(false)
+    }
+  }
+
+  function cancelEditing() {
+    setEditing(false)
+    setDraft('')
+    setEditError(null)
+  }
+
+  async function saveEditing() {
+    const trimmed = draft.trim()
+    if (!trimmed) return
+    setSavingEdit(true)
+    setEditError(null)
+    try {
+      await onEdit(item.id, trimmed)
+      setEditing(false)
+      setDraft('')
+    } catch (err) {
+      setEditError(err.message)
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="item-card" id={`item-${item.id}`}>
+        {editError && <p className="error">{editError}</p>}
+        <textarea
+          className="save-input item-edit-input"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          disabled={loadingFull || savingEdit}
+          autoFocus
+          rows={4}
+        />
+        <div className="item-card-actions item-edit-actions">
+          <button type="button" onClick={saveEditing} disabled={loadingFull || savingEdit}>
+            {savingEdit ? 'Saving…' : 'Save'}
+          </button>
+          <button type="button" onClick={cancelEditing} disabled={savingEdit}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="item-card" id={`item-${item.id}`}>
       <div className="item-card-header">
         <p className="title">{item.title || item.preview || item.source_url}</p>
         <div className="item-card-actions">
+          {isEditable && (
+            <button
+              type="button"
+              className="edit-button"
+              onClick={startEditing}
+              aria-label="Edit this note"
+              title="Edit"
+            >
+              ✎
+            </button>
+          )}
           {onExplain && (
             <button
               type="button"
@@ -352,7 +432,7 @@ function TableView({ items, onDelete, folders, onMove, onExplain, explainingId }
   )
 }
 
-function CalendarView({ items, onDelete, folders, onMove, onExplain, explainingId }) {
+function CalendarView({ items, onDelete, folders, onMove, onExplain, explainingId, onEdit }) {
   const [monthOffset, setMonthOffset] = useState(0)
   const [selectedDay, setSelectedDay] = useState(null)
 
@@ -428,6 +508,7 @@ function CalendarView({ items, onDelete, folders, onMove, onExplain, explainingI
                 onMove={onMove}
                 onExplain={onExplain}
                 explainingId={explainingId}
+                onEdit={onEdit}
                 key={item.id}
               />
             ))
@@ -494,6 +575,16 @@ const ItemsPanel = forwardRef(function ItemsPanel(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFolderId])
 
+  // Auto-grow the note textarea with its content (up to the CSS max-height,
+  // where it scrolls instead) -- reset to 'auto' first so it can shrink
+  // back down too, e.g. after deleting a few lines or clearing on submit.
+  useEffect(() => {
+    const el = noteInputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [content])
+
   useEffect(() => {
     if (pendingScroll && !loading) {
       setPendingScroll(null)
@@ -511,6 +602,14 @@ const ItemsPanel = forwardRef(function ItemsPanel(
     } catch (err) {
       setError(err.message)
     }
+  }
+
+  async function handleEdit(itemId, content) {
+    // Re-throw so ItemCard's own save button can show the error inline
+    // and stay in edit mode, instead of losing the user's edited draft.
+    await editItem(itemId, content)
+    await loadItems()
+    onItemsChanged?.()
   }
 
   async function handleExplain(itemId) {
@@ -776,6 +875,7 @@ const ItemsPanel = forwardRef(function ItemsPanel(
               onMove={handleMove}
               onExplain={handleExplain}
               explainingId={explainingId}
+              onEdit={handleEdit}
               key={item.id}
             />
           ))
@@ -798,6 +898,7 @@ const ItemsPanel = forwardRef(function ItemsPanel(
             onMove={handleMove}
             onExplain={handleExplain}
             explainingId={explainingId}
+            onEdit={handleEdit}
           />
         )}
       </div>
@@ -849,13 +950,20 @@ const ItemsPanel = forwardRef(function ItemsPanel(
               )}
             </div>
 
-            <input
+            <textarea
               className="save-input"
-              placeholder="Paste a link, or save a thought&hellip;"
+              placeholder="Paste a link, or save a thought&hellip; (Shift+Enter for a new line)"
               value={content}
               onChange={(event) => setContent(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  event.currentTarget.form?.requestSubmit()
+                }
+              }}
               disabled={saving}
               ref={noteInputRef}
+              rows={1}
             />
 
             {!activeFolderId && folders.length > 0 && (

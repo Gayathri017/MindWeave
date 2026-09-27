@@ -365,6 +365,47 @@ button:disabled {
   color: var(--danger);
 }
 
+.edit-button {
+  background: none;
+  border: none;
+  color: var(--text-muted-dark);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.edit-button:hover {
+  opacity: 1;
+  color: var(--orange);
+}
+
+.item-edit-input {
+  margin-bottom: 8px;
+  max-height: 240px;
+}
+
+.item-edit-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.item-edit-actions button {
+  background: var(--olive);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-on-dark);
+}
+
+.item-edit-actions button:first-child {
+  background: var(--orange);
+  color: var(--bg-dark, #1a1a1a);
+  border-color: transparent;
+}
+
 .item-card .title {
   font-size: 14px;
   font-weight: 500;
@@ -650,6 +691,11 @@ button:disabled {
   padding: 12px 14px;
   font-size: 13px;
   color: var(--text-on-dark);
+  font-family: inherit;
+  resize: none;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.4;
 }
 
 .save-input::placeholder {
@@ -684,7 +730,7 @@ button:disabled {
 
 .save-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
 }
 

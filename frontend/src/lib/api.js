@@ -116,6 +116,18 @@ export function moveItemToFolder(itemId, folderId) {
   })
 }
 
+export function getItem(itemId) {
+  return authorizedFetch(`/api/items/${itemId}`)
+}
+
+export function editItem(itemId, content) {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  return authorizedFetch(`/api/items/${itemId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ content, timezone }),
+  })
+}
+
 export function listFolders() {
   return authorizedFetch('/api/folders')
 }

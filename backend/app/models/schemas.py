@@ -37,8 +37,24 @@ class ItemWithConcepts(ItemSummary):
     )
 
 
+class ItemDetail(ItemSummary):
+    """Full item, including the complete raw_text -- unlike ItemWithConcepts's
+    truncated preview, this is what an edit UI needs to show for editing.
+    """
+
+    raw_text: str
+
+
 class UpdateItemFolderRequest(BaseModel):
     folder_id: uuid.UUID | None = Field(default=None, description="Folder to move this item into, or null to unfile it.")
+
+
+class UpdateItemContentRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=50_000, description="The note's new text.")
+    timezone: str | None = Field(
+        default=None,
+        description="IANA timezone name, same as SaveItemRequest -- used to re-resolve relative dates in the edited text.",
+    )
 
 
 class CreateFolderRequest(BaseModel):

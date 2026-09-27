@@ -23,10 +23,12 @@ from app.models.schemas import (
     RenameFolderRequest,
     ExplainerResponse,
     FolderSummary,
+    ItemDetail,
     ItemSummary,
     ItemWithConcepts,
     SaveItemRequest,
     TranscriptionResponse,
+    UpdateItemContentRequest,
     UpdateItemFolderRequest,
 )
 from app.services.explainer import build_explainer
@@ -40,7 +42,7 @@ from app.services.folders import (
     rename_folder,
 )
 from app.services.gemini_client import transcribe_audio
-from app.services.ingestion import save_audio_item, save_document_item, save_item
+from app.services.ingestion import edit_text_item, save_audio_item, save_document_item, save_item
 from app.services.items import delete_item, get_item, list_items, update_item_folder
 from app.services.limits import DailyLimitExceeded, enforce_daily_limit
 from app.services.retrieval import answer_question, answer_question_about_image, get_chat_history
@@ -311,6 +313,30 @@ async def read_items(
     return await list_items(session, user_id, folder_id=folder_id)
 
 
+@router.get("/items/{item_id}", response_model=ItemDetail)
+async def read_item(
+    item_id: uuid.UUID,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> ItemDetail:
+    """One item's full text -- the list view only sends a short preview,
+    so this is what an edit UI fetches to show the complete note.
+    """
+    item = await get_item(session, user_id, item_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+
+    return ItemDetail(
+        id=item.id,
+        source_type=item.source_type,
+        source_url=item.source_url,
+        title=item.title,
+        folder_id=item.folder_id,
+        created_at=item.created_at,
+        raw_text=item.raw_text,
+    )
+
+
 @router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_item(
     item_id: uuid.UUID,
@@ -335,6 +361,36 @@ async def move_item(
     except FolderNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+
+    return ItemSummary(
+        id=item.id,
+        source_type=item.source_type,
+        source_url=item.source_url,
+        title=item.title,
+        folder_id=item.folder_id,
+        created_at=item.created_at,
+    )
+
+
+@router.patch("/items/{item_id}", response_model=ItemSummary)
+@limiter.limit("20/minute")
+async def edit_item(
+    request: Request,
+    item_id: uuid.UUID,
+    body: UpdateItemContentRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_for_request),
+) -> ItemSummary:
+    """Edit a typed note's text -- re-chunks, re-embeds, and re-extracts
+    concepts from the new text so search and the concept graph stay in
+    sync with what the note now says. Only works for typed notes (not
+    URLs, audio, or documents); returns 404 for anything else, the same
+    as if the item didn't exist -- there's nothing to "edit" about a
+    scraped page or a transcript in the same sense.
+    """
+    item = await edit_text_item(session, user_id, item_id, body.content, body.timezone)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
 
